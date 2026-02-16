@@ -41,7 +41,6 @@ pipeline {
           string(credentialsId: 'SUPABASE_URL', variable: 'SUPA_URL'),
           string(credentialsId: 'SUPABASE_KEY', variable: 'SUPA_KEY'),
           string(credentialsId: 'ENCRYPTION_KEY', variable: 'ENC_KEY'),
-          string(credentialsId: 'GEMINI_API_KEY', variable: 'GEMINI_KEY')
         ]) {
           sh """
 cat > .env << EOF
@@ -49,7 +48,7 @@ PORT=${PORT}
 SUPABASE_URL="${SUPA_URL}"
 SUPABASE_KEY="${SUPA_KEY}"
 ENCRYPTION_KEY="${ENC_KEY}"
-GEMINI_API_KEY="${GEMINI_KEY}"
+
 EOF
 """
         }
