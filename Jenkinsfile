@@ -1,5 +1,9 @@
 pipeline {
   agent any
+
+  tools {
+    nodejs "node"
+  }
   
   options {
     timestamps()
@@ -15,7 +19,7 @@ pipeline {
   environment {
     // === CONFIGURATION ===
     // If you are deploying to the SAME server where Jenkins runs:
-    BACKEND_DIR  = "/var/www/backend-aicode"
+    BACKEND_DIR  = "/var/www/backend/backend-aicode"
     PM2_NAME     = "aicode-backend"
     PORT         = "3000"
   }
