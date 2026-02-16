@@ -5,8 +5,20 @@ const { createClient } = require('@supabase/supabase-js');
 const { encrypt, decrypt } = require('./utils/crypto');
 const { systemPrompt } = require('./prompts');
 
+const rateLimit = require('express-rate-limit');
+
 const app = express();
 const port = process.env.PORT || 3000;
+
+// Rate limiting: 100 requests per 15 minutes
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.'
+});
+
+// Apply to all requests
+app.use(limiter);
 
 app.use(cors());
 app.use(express.json());
