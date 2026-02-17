@@ -596,11 +596,9 @@ app.post('/api/chat', async (req, res) => {
             return res.status(400).json({ error: 'API Key missing' });
         }
 
-        // Call Google Gemini API
-        // Using gemini-3-flash-preview (latest model)
-        
+        // Call Google Gemini API with streaming
         const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${geminiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:streamGenerateContent?alt=sse&key=${geminiKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -620,27 +618,35 @@ app.post('/api/chat', async (req, res) => {
             });
         }
 
+        // Set SSE headers for streaming
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
 
-        // In Node 22, response.body is a web ReadableStream, not a node Readable.
-        // We need to convert it or iterate over it.
-        const { Readable } = require('stream');
-        const { ReadableStream } = require('stream/web');
-        
-
-        // Check if response.body is iterable or a web stream
-        console.log('Gemini Response Status:', response.status);
+        // Stream the response from Gemini to frontend
         if (response.body) {
-             console.log('Starting to read stream...');
-             const reader = response.body.getReader();
-             while (true) {
-                 const { done, value } = await reader.read();
-                 if (done) {
-                     console.log('Stream done.');
-                     break;
-                 }
-                 res.write(value);
-             }
-             res.end();
+            console.log('Starting to stream response...');
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        console.log('Stream completed.');
+                        res.write('data: [DONE]\n\n');
+                        break;
+                    }
+                    
+                    // Decode and forward the SSE data
+                    const chunk = decoder.decode(value, { stream: true });
+                    res.write(chunk);
+                }
+            } catch (streamError) {
+                console.error('Stream error:', streamError);
+            } finally {
+                res.end();
+            }
         } else {
             console.error('No response body from Gemini');
             res.end();
@@ -648,7 +654,11 @@ app.post('/api/chat', async (req, res) => {
 
     } catch (error) {
         console.error('Chat error:', error);
-        res.status(500).json({ error: error.message });
+        if (!res.headersSent) {
+            res.status(500).json({ error: error.message });
+        } else {
+            res.end();
+        }
     }
 });
 
