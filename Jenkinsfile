@@ -1,6 +1,10 @@
 pipeline {
     agent any
 
+    tools {
+        nodejs "node"
+    }
+
     options {
         timestamps()
         buildDiscarder(logRotator(numToKeepStr: '5'))
@@ -16,8 +20,6 @@ pipeline {
         BACKEND_DIR  = "/var/www/unklab-backend"
         PM2_NAME     = "aicode-backend"
         BACKEND_PORT = "3000"
-        // Memastikan Jenkins bisa menemukan Node & PM2
-        PATH = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
     }
 
     stages {
@@ -37,41 +39,20 @@ pipeline {
             }
         }
 
-        stage('Create .env') {
-            steps {
-                // Pastikan ID di credentials Jenkins sama persis dengan yang di bawah ini
-                withCredentials([
-                    string(credentialsId: 'SUPABASE_URL', variable: 'SUPA_URL'),
-                    string(credentialsId: 'SUPABASE_KEY', variable: 'SUPA_KEY'),
-                    string(credentialsId: 'ENCRYPTION_KEY', variable: 'ENC_KEY'),
-                ]) {
-                    sh """
-                    cat > .env << EOF
-PORT=${BACKEND_PORT}
-SUPABASE_URL="${SUPA_URL}"
-SUPABASE_KEY="${SUPA_KEY}"
-ENCRYPTION_KEY="${ENC_KEY}"
-EOF
-                    """
-                }
-            }
-        }
-
         stage('Deploy Files') {
             steps {
                 sh """
                     # Buat folder jika belum ada
                     mkdir -p ${BACKEND_DIR}
                     
-                    # Sinkronisasi file (abaikan node_modules agar cepat)
+                    # Sinkronisasi file 
+                    # PENTING: --exclude .env agar file .env di server TIDAK TERHAPUS
                     rsync -az --delete \
                       --exclude node_modules \
                       --exclude .git \
                       --exclude Jenkinsfile \
+                      --exclude .env \
                       ./ ${BACKEND_DIR}/
-
-                    # Pindahkan file .env yang baru dibuat
-                    mv .env ${BACKEND_DIR}/.env
                 """
             }
         }
@@ -89,7 +70,6 @@ EOF
                             pm2 reload ${PM2_NAME} --update-env
                         else
                             echo "Starting application for the first time..."
-                            # Sesuaikan 'server.js' dengan file utama backend Anda (misal: index.js atau app.js)
                             pm2 start server.js --name ${PM2_NAME}
                         fi
                         
