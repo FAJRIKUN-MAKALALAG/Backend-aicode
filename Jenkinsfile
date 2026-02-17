@@ -12,10 +12,11 @@ pipeline {
   }
 
   environment {
-    BACKEND_DIR = "/srv/backend/backend-aicode"
-    PM2_NAME    = "aicode-backend"
-    PORT        = "3000"
+    BACKEND_DIR  = "/var/www/unklab-backend"
+    PM2_NAME     = "aicode-backend"
+    BACKEND_PORT = "3000"
   }
+  
 
   stages {
 
