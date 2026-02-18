@@ -564,7 +564,7 @@ app.delete('/api/code/:id', async (req, res) => {
 
 app.post('/api/chat', async (req, res) => {
     try {
-        const { messages, apiKey: providedKey, userId } = req.body;
+        const { messages: currentMessages, conversationId, userId, apiKey: providedKey } = req.body;
         
         // 1. Determine which API Key to use
         let geminiKey = providedKey;
@@ -587,7 +587,7 @@ app.post('/api/chat', async (req, res) => {
             }
         }
 
-        // Fallback to server env var if still no key (optional, maybe remove if strictly user-only)
+        // Fallback to server env var if still no key
         if (!geminiKey) {
              geminiKey = process.env.GEMINI_API_KEY; 
         }
@@ -595,27 +595,45 @@ app.post('/api/chat', async (req, res) => {
         if (!geminiKey || geminiKey === 'your_gemini_api_key') {
             return res.status(400).json({ error: 'API Key missing. Please set it in Settings.' });
         }
+
+        // 2. Fetch historical context from Supabase (Context Awareness)
+        let historicalContext = [];
+        if (conversationId) {
+            try {
+                const { data: history, error: historyError } = await supabase
+                    .from('messages')
+                    .select('role, content')
+                    .eq('conversation_id', conversationId)
+                    .order('created_at', { ascending: false })
+                    .limit(20);
+
+                if (historyError) throw historyError;
+                
+                // Reverse to get chronological order and map to Gemini format
+                historicalContext = history.reverse().map(msg => ({
+                    role: msg.role === 'assistant' ? 'model' : 'user',
+                    parts: [{ text: msg.content }]
+                }));
+            } catch (dbError) {
+                console.error('Database history fetch failed:', dbError);
+                // Continue with just current messages if history fetch fails
+            }
+        }
         
-        // ... proceed with chat ...
-        // Construct the full prompt context
+        // 3. Construct the full prompt context
         const contents = [
             {
                 role: "user",
                 parts: [{ text: systemPrompt }]
             },
-            ...messages.map(m => ({
+            ...historicalContext,
+            ...currentMessages.map(m => ({
                 role: m.role === 'assistant' ? 'model' : 'user',
                 parts: [{ text: m.content }]
             }))
         ];
 
-        // Ensure we have an API key (either from request or env)
-        // const geminiKey = apiKey || process.env.GEMINI_API_KEY; // REPLACED logic above
-        if (!geminiKey) {
-            return res.status(400).json({ error: 'API Key missing' });
-        }
-
-        // Call Google Gemini API with streaming
+        // 4. Call Google Gemini API with streaming
         const response = await fetch(
             `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${geminiKey}`,
             {
