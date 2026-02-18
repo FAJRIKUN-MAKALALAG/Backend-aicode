@@ -64,15 +64,20 @@ pipeline {
             }
         }
 
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm install --omit=dev'
+            }
+        }
+
         stage('Deploy Files') {
             steps {
                 sh """
-                    # Pastikan folder tujuan ada dan dimiliki user jenkins
+                    # Pastikan folder tujuan ada
                     mkdir -p ${BACKEND_DIR}
                     
-                    # Sinkronisasi file proyek ke folder deployment
+                    # Sinkronisasi file proyek ke folder deployment (termasuk node_modules)
                     rsync -az --delete \
-                      --exclude node_modules \
                       --exclude .git \
                       --exclude Jenkinsfile \
                       ./ ${BACKEND_DIR}/
@@ -83,20 +88,16 @@ pipeline {
             }
         }
 
-        stage('Install & Restart Application') {
+        stage('Restart Application') {
             steps {
                 dir("${BACKEND_DIR}") {
                     sh """
-                        # Install dependencies (menggunakan clean install untuk stabilitas)
-                        npm install --omit=dev
-
                         # Cek apakah aplikasi sudah berjalan di PM2
                         if pm2 describe ${PM2_NAME} > /dev/null; then
                             echo "🔄 Reloading ${PM2_NAME}..."
                             pm2 reload ${PM2_NAME} --update-env
                         else
                             echo "🚀 Starting ${PM2_NAME} for the first time..."
-                            # Jalankan server.js (pastikan file utama Anda bernama server.js)
                             pm2 start server.js --name ${PM2_NAME}
                         fi
                         
