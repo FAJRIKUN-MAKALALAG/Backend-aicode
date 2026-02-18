@@ -20,8 +20,26 @@ const limiter = rateLimit({
 // Apply to all requests
 app.use(limiter);
 
-app.use(cors());
+// Explicit CORS configuration — allows frontend domain and handles preflight
+const corsOptions = {
+  origin: [
+    'https://unklab-aicode.online',
+    'http://localhost:5173',
+    'http://localhost:3000',
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
+  optionsSuccessStatus: 200, // Some browsers (IE11) choke on 204
+};
+
+app.use(cors(corsOptions));
+
+// Explicitly handle preflight OPTIONS requests for all routes
+app.options('*', cors(corsOptions));
+
 app.use(express.json());
+
 
 // Initialize Supabase (if env vars match)
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -622,6 +640,7 @@ app.post('/api/chat', async (req, res) => {
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no'); // Disable Nginx buffering
 
         // Stream the response from Gemini to frontend
         if (response.body) {
