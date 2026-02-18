@@ -618,16 +618,11 @@ app.post('/api/chat', async (req, res) => {
             }).catch(err => console.error('BG User Save Error:', err));
         }
 
-        // 7. Unified Model & Dynamic System Prompt
-        const selectedModel = 'gemini-1.5-flash'; // Unified for stability
-        let dynamicInstruction = systemPrompt;
-        if (mode === 'reasoning') {
-            dynamicInstruction += "\n\nCRITICAL: Please provide a deep, step-by-step logical analysis before giving the final answer or code.";
-        } else {
-            dynamicInstruction += "\n\nCRITICAL: Be concise and give the answer as quickly as possible.";
-        }
+        // 7. Fixed Model & Dynamic Thinking Level (Senior AI Engineer standard)
+        const selectedModel = 'gemini-3-flash-preview'; 
+        const thinkingLevel = (mode === 'reasoning') ? 'medium' : 'minimal';
 
-        // 8. API Call Construction
+        // 8. API Call Construction with Generation Config
         const requestBody = {
             contents: [
                 ...historicalContext,
@@ -637,7 +632,10 @@ app.post('/api/chat', async (req, res) => {
                 }))
             ],
             system_instruction: {
-                parts: [{ text: dynamicInstruction }]
+                parts: [{ text: systemPrompt }]
+            },
+            generationConfig: {
+                thinking_level: thinkingLevel
             }
         };
 
@@ -682,7 +680,7 @@ app.post('/api/chat', async (req, res) => {
                                 const textChunk = json.candidates?.[0]?.content?.parts?.[0]?.text || "";
                                 if (textChunk) {
                                     fullAssistantText += textChunk;
-                                    // STABLE SSE: Wrap in predictable JSON format
+                                    // STABLE SSE: Wrap in JSON text object for frontend
                                     res.write(`data: ${JSON.stringify({ text: textChunk })}\n\n`);
                                 }
                             } catch (e) {}
@@ -694,7 +692,7 @@ app.post('/api/chat', async (req, res) => {
                 console.error('Stream error:', err);
             } finally {
                 res.end();
-                // 10. Background Save
+                // 10. Background Save AI Response
                 if (conversationId && fullAssistantText) {
                     supabase.from('messages').insert({
                         conversation_id: conversationId,
@@ -708,7 +706,7 @@ app.post('/api/chat', async (req, res) => {
         }
 
     } catch (error) {
-        console.error('Unified API Error:', error);
+        console.error('Gemini 3 Flash Error:', error);
         res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
         res.end();
     }
