@@ -66,6 +66,7 @@ pipeline {
 
         stage('Install Dependencies') {
             steps {
+                echo "Installing production dependencies..."
                 sh 'npm install --omit=dev'
             }
         }

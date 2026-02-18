@@ -4,7 +4,7 @@ require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const { encrypt, decrypt } = require('./utils/crypto');
 const { systemPrompt } = require('./prompts');
-const { GoogleGenAI } = require('@google/genai');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const rateLimit = require('express-rate-limit');
 
@@ -625,40 +625,48 @@ app.post('/api/chat', async (req, res) => {
             }).catch(err => console.error('BG User Save Error:', err));
         }
 
-        // 7. SDK Initialization & ModelConfig
-        const client = new GoogleGenAI({ apiKey: geminiKey });
-        const thinkingLevel = (mode === 'reasoning') ? 'medium' : 'minimal';
-        
-        // 8. Stream Generation with SDK
-        const stream = await client.models.generateContentStream({
-            model: 'gemini-3-flash-preview',
+        // 7. Prompt Engineering for Fast vs Reasoning
+        // No SDK thinking_level used as it causes 400 errors for this endpoint style
+        let finalSystemInstruction = systemPrompt;
+        if (mode === 'reasoning') {
+            finalSystemInstruction = `[REASONING MODE ENABLED]\n${systemPrompt}\n\nTugas Anda: Berikan jawaban yang mendalam, analitis, dan jelaskan langkah-langkah logika Anda secara menyeluruh. Evaluasi berbagai kemungkinan sebelum memberikan solusi akhir.`;
+        } else {
+            finalSystemInstruction = `[FAST MODE ENABLED]\n${systemPrompt}\n\nTugas Anda: Berikan jawaban yang sangat singkat, padat, langsung ke poinnya, dan efisien.`;
+        }
+
+        // 8. SDK Initialization (Using gemini-3-flash-preview)
+        console.log("[DEBUG] Initializing SDK with Model: gemini-3-flash-preview");
+        const genAI = new GoogleGenerativeAI(geminiKey);
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-3-flash-preview",
+            systemInstruction: finalSystemInstruction
+        });
+
+        // 9. Stream Generation with SDK
+        console.log("[DEBUG] Starting generateContentStream...");
+        const result = await model.generateContentStream({
             contents: [
                 ...historicalContext,
                 ...currentMessages.map(m => ({
                     role: m.role === 'assistant' ? 'model' : 'user',
                     parts: [{ text: m.content }]
                 }))
-            ],
-            systemInstruction: systemPrompt,
-            config: {
-                thinkingConfig: {
-                    includeThoughts: true,
-                    thinkingLevel: thinkingLevel
-                }
-            }
+            ]
         });
 
-        // 9. Stable SSE Consumption & Async Assistant Save
+        // 10. SSE Consumption & Async Assistant Save
         let fullAssistantText = "";
         try {
-            for await (const chunk of stream) {
+            console.log("[DEBUG] Consuming SDK stream chunks...");
+            for await (const chunk of result.stream) {
                 const textChunk = chunk.text();
                 if (textChunk) {
                     fullAssistantText += textChunk;
-                    // Predictable SSE Format for frontend
+                    // Maintain standard SSE JSON format
                     res.write(`data: ${JSON.stringify({ text: textChunk })}\n\n`);
                 }
             }
+            console.log("[DEBUG] Stream consumption finished.");
             res.write('data: [DONE]\n\n');
         } catch (streamErr) {
             console.error('SDK Streaming Error:', streamErr);
@@ -669,7 +677,7 @@ app.post('/api/chat', async (req, res) => {
             console.log("Assistant Text Preview:", fullAssistantText.substring(0, 50) + "...");
             
             res.end();
-            // 10. Background Save AI Response
+            // 11. Background Save AI Response
             if (conversationId && fullAssistantText) {
                 supabase.from('messages').insert({
                     conversation_id: conversationId,
@@ -680,7 +688,7 @@ app.post('/api/chat', async (req, res) => {
         }
 
     } catch (error) {
-        console.error('SDK Chat Error:', error);
+        console.error('Gemini SDK Error:', error);
         res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
         res.end();
     }
