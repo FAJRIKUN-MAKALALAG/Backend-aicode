@@ -563,14 +563,14 @@ app.delete('/api/code/:id', async (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
-    // 1. EARLY FLUSH: Set headers and flush immediately to reduce TTFB
+    // 1. EARLY FLUSH: Set headers and flush immediately
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no'); // Bypass Nginx buffering
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
-    // 2. DUMMY CHUNK: Force connection open immediately
+    // 2. DUMMY CHUNK: Force open the pipe
     res.write(' ');
 
     try {
@@ -578,11 +578,9 @@ app.post('/api/chat', async (req, res) => {
         
         // 3. Parallel Fetch: API Key and 15-message history
         const [keyResult, historyResult] = await Promise.all([
-            // Fetch Key
             (!providedKey && userId) ? 
                 supabase.from('user_secrets').select('encrypted_value, iv').eq('user_id', userId).eq('key_name', 'GEMINI_API_KEY').single() : 
                 Promise.resolve({ data: null }),
-            // Fetch History
             conversationId ? 
                 supabase.from('messages').select('role, content').eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(15) : 
                 Promise.resolve({ data: [] })
@@ -604,26 +602,32 @@ app.post('/api/chat', async (req, res) => {
             return res.end();
         }
 
-        // 5. Map History efficiently
+        // 5. Map History
         const historicalContext = (historyResult.data || []).reverse().map(msg => ({
             role: msg.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: msg.content }]
         }));
 
-        // 6. Non-Blocking Save: User Message in Background
+        // 6. Non-Blocking User Msg Save
         const lastUserMsg = currentMessages[currentMessages.length - 1];
         if (conversationId && lastUserMsg) {
             supabase.from('messages').insert({
                 conversation_id: conversationId,
                 role: lastUserMsg.role,
                 content: lastUserMsg.content
-            }).catch(err => console.error('BG User Message Save Error:', err));
+            }).catch(err => console.error('BG User Save Error:', err));
         }
 
-        // 7. Model Selection
-        const selectedModel = (mode === 'reasoning') ? 'gemini-3-flash-preview' : 'gemini-1.5-flash';
+        // 7. Unified Model & Dynamic System Prompt
+        const selectedModel = 'gemini-1.5-flash'; // Unified for stability
+        let dynamicInstruction = systemPrompt;
+        if (mode === 'reasoning') {
+            dynamicInstruction += "\n\nCRITICAL: Please provide a deep, step-by-step logical analysis before giving the final answer or code.";
+        } else {
+            dynamicInstruction += "\n\nCRITICAL: Be concise and give the answer as quickly as possible.";
+        }
 
-        // 8. Call Gemini with System Instruction
+        // 8. API Call Construction
         const requestBody = {
             contents: [
                 ...historicalContext,
@@ -633,29 +637,18 @@ app.post('/api/chat', async (req, res) => {
                 }))
             ],
             system_instruction: {
-                parts: [{ text: systemPrompt }]
+                parts: [{ text: dynamicInstruction }]
             }
         };
 
-        async function fetchGeminiStream(model) {
-            console.log(`Express calling Gemini: ${model}`);
-            return fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${geminiKey}`,
-                {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(requestBody)
-                }
-            );
-        }
-
-        let response = await fetchGeminiStream(selectedModel);
-
-        // Fallback or Error handling
-        if (!response.ok && selectedModel !== 'gemini-1.5-flash') {
-            console.warn(`Fallback to 1.5-flash due to status: ${response.status}`);
-            response = await fetchGeminiStream('gemini-1.5-flash');
-        }
+        const response = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse&key=${geminiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            }
+        );
 
         if (!response.ok) {
             const errorText = await response.text();
@@ -663,7 +656,7 @@ app.post('/api/chat', async (req, res) => {
             return res.end();
         }
 
-        // 9. Stable SSE Format & Non-Blocking Assistant Save
+        // 9. Stable SSE & Async Assistant Save
         let fullAssistantText = "";
         if (response.body) {
             const reader = response.body.getReader();
@@ -677,7 +670,7 @@ app.post('/api/chat', async (req, res) => {
 
                     buffer += decoder.decode(value, { stream: true });
                     const lines = buffer.split('\n');
-                    buffer = lines.pop(); // Keep last potentially incomplete line
+                    buffer = lines.pop();
 
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
@@ -689,27 +682,25 @@ app.post('/api/chat', async (req, res) => {
                                 const textChunk = json.candidates?.[0]?.content?.parts?.[0]?.text || "";
                                 if (textChunk) {
                                     fullAssistantText += textChunk;
-                                    // STABLE SSE FORMAT: Wrap in JSON text object
+                                    // STABLE SSE: Wrap in predictable JSON format
                                     res.write(`data: ${JSON.stringify({ text: textChunk })}\n\n`);
                                 }
-                            } catch (e) {
-                                // Ignore non-JSON or partial data
-                            }
+                            } catch (e) {}
                         }
                     }
                 }
                 res.write('data: [DONE]\n\n');
             } catch (err) {
-                console.error('Streaming loop error:', err);
+                console.error('Stream error:', err);
             } finally {
                 res.end();
-                // 10. Background Save AI Response
+                // 10. Background Save
                 if (conversationId && fullAssistantText) {
                     supabase.from('messages').insert({
                         conversation_id: conversationId,
                         role: 'assistant',
                         content: fullAssistantText
-                    }).catch(err => console.error('BG Assistant Message Save Error:', err));
+                    }).catch(err => console.error('BG Assistant Save Error:', err));
                 }
             }
         } else {
@@ -717,7 +708,7 @@ app.post('/api/chat', async (req, res) => {
         }
 
     } catch (error) {
-        console.error('Ultra-Low Latency Chat Error:', error);
+        console.error('Unified API Error:', error);
         res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
         res.end();
     }
