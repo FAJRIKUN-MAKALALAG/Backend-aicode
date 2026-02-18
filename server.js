@@ -10,17 +10,10 @@ const rateLimit = require('express-rate-limit');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Rate limiting: 100 requests per 15 minutes
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
-});
+// Trust the first proxy (Nginx) to get correct client IP for rate limiting
+app.set('trust proxy', 1);
 
-// Apply to all requests
-app.use(limiter);
-
-// Explicit CORS configuration — allows frontend domain and handles preflight
+// Explicit CORS configuration — MUST be before rate limiter or any route
 const corsOptions = {
   origin: [
     'https://unklab-aicode.online',
@@ -33,10 +26,21 @@ const corsOptions = {
   optionsSuccessStatus: 200, // Some browsers (IE11) choke on 204
 };
 
+// Enable CORS for all routes
 app.use(cors(corsOptions));
 
 // Explicitly handle preflight OPTIONS requests for all routes
 app.options('*', cors(corsOptions));
+
+// Rate limiting: 100 requests per 15 minutes
+const limiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // limit each IP to 100 requests per windowMs
+  message: 'Too many requests from this IP, please try again later.'
+});
+
+// Apply rate limiting after CORS
+app.use(limiter);
 
 app.use(express.json());
 
