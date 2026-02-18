@@ -564,6 +564,12 @@ app.delete('/api/code/:id', async (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
+    // Logging for PM2 monitoring
+    console.log("--- REQUEST MASUK ---");
+    console.log("User ID:", req.body.userId);
+    console.log("Mode:", req.body.mode);
+    console.log("Jumlah Pesan History:", req.body.messages?.length);
+
     // 1. EARLY FLUSH: Set headers and flush immediately
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
@@ -658,6 +664,10 @@ app.post('/api/chat', async (req, res) => {
             console.error('SDK Streaming Error:', streamErr);
             res.write(`data: ${JSON.stringify({ error: 'Streaming failed', details: streamErr.message })}\n\n`);
         } finally {
+            console.log("--- RESPONSE KELUAR ---");
+            console.log("AI Response Length:", fullAssistantText.length);
+            console.log("Assistant Text Preview:", fullAssistantText.substring(0, 50) + "...");
+            
             res.end();
             // 10. Background Save AI Response
             if (conversationId && fullAssistantText) {
