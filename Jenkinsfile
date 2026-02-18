@@ -77,10 +77,11 @@ pipeline {
                     # Pastikan folder tujuan ada
                     mkdir -p ${BACKEND_DIR}
                     
-                    # Sinkronisasi file proyek ke folder deployment (termasuk node_modules)
+                    # Sinkronisasi file proyek (KECUALI node_modules untuk menghindari Permission Denied)
                     rsync -az --delete \
                       --exclude .git \
                       --exclude Jenkinsfile \
+                      --exclude node_modules \
                       ./ ${BACKEND_DIR}/
 
                     # Pindahkan .env ke folder tujuan
@@ -89,10 +90,13 @@ pipeline {
             }
         }
 
-        stage('Restart Application') {
+        stage('Server-side Install & Restart') {
             steps {
                 dir("${BACKEND_DIR}") {
                     sh """
+                        echo "📦 Running npm install on server..."
+                        npm install --omit=dev
+
                         # Cek apakah aplikasi sudah berjalan di PM2
                         if pm2 describe ${PM2_NAME} > /dev/null; then
                             echo "🔄 Reloading ${PM2_NAME}..."
