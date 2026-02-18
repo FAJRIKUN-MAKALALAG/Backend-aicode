@@ -575,10 +575,8 @@ app.post('/api/chat', async (req, res) => {
 
     try {
         const { messages: currentMessages, conversationId, userId, mode, apiKey: providedKey } = req.body;
-        const isFastMode = mode === 'fast';
-        const historyLimit = isFastMode ? 10 : 20;
-
-        // 3. Parallel Fetch & Minimal Context
+        
+        // 3. Parallel Fetch: API Key and 15-message history
         const [keyResult, historyResult] = await Promise.all([
             // Fetch Key
             (!providedKey && userId) ? 
@@ -586,7 +584,7 @@ app.post('/api/chat', async (req, res) => {
                 Promise.resolve({ data: null }),
             // Fetch History
             conversationId ? 
-                supabase.from('messages').select('role, content').eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(historyLimit) : 
+                supabase.from('messages').select('role, content').eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(15) : 
                 Promise.resolve({ data: [] })
         ]);
 
@@ -612,23 +610,20 @@ app.post('/api/chat', async (req, res) => {
             parts: [{ text: msg.content }]
         }));
 
-        // 6. Asynchronous Background Saving (DO NOT AWAIT)
-        // We assume the frontend sends the latest user message in currentMessages
-        const lastMessage = currentMessages[currentMessages.length - 1];
-        if (conversationId && lastMessage) {
+        // 6. Non-Blocking Save: User Message in Background
+        const lastUserMsg = currentMessages[currentMessages.length - 1];
+        if (conversationId && lastUserMsg) {
             supabase.from('messages').insert({
                 conversation_id: conversationId,
-                role: lastMessage.role,
-                content: lastMessage.content
-            }).then(({ error }) => {
-                if (error) console.error('Background message saving failed:', error);
-            });
+                role: lastUserMsg.role,
+                content: lastUserMsg.content
+            }).catch(err => console.error('BG User Message Save Error:', err));
         }
 
         // 7. Model Selection
-        let selectedModel = isFastMode ? 'gemini-1.5-flash' : 'gemini-3-flash-preview';
+        const selectedModel = (mode === 'reasoning') ? 'gemini-3-flash-preview' : 'gemini-1.5-flash';
 
-        // 8. Call Gemini with SSE pipe
+        // 8. Call Gemini with System Instruction
         const requestBody = {
             contents: [
                 ...historicalContext,
@@ -642,10 +637,10 @@ app.post('/api/chat', async (req, res) => {
             }
         };
 
-        async function fetchGeminiWithStreaming(modelName) {
-            console.log(`Starting Gemini stream: ${modelName}`);
+        async function fetchGeminiStream(model) {
+            console.log(`Express calling Gemini: ${model}`);
             return fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${geminiKey}`,
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${geminiKey}`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -654,12 +649,12 @@ app.post('/api/chat', async (req, res) => {
             );
         }
 
-        let response = await fetchGeminiWithStreaming(selectedModel);
+        let response = await fetchGeminiStream(selectedModel);
 
         // Fallback or Error handling
         if (!response.ok && selectedModel !== 'gemini-1.5-flash') {
-            console.warn(`Model ${selectedModel} failed. Falling back to 1.5-flash.`);
-            response = await fetchGeminiWithStreaming('gemini-1.5-flash');
+            console.warn(`Fallback to 1.5-flash due to status: ${response.status}`);
+            response = await fetchGeminiStream('gemini-1.5-flash');
         }
 
         if (!response.ok) {
@@ -668,31 +663,61 @@ app.post('/api/chat', async (req, res) => {
             return res.end();
         }
 
-        // 9. Stream pipe
+        // 9. Stable SSE Format & Non-Blocking Assistant Save
+        let fullAssistantText = "";
         if (response.body) {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
-            
+            let buffer = "";
+
             try {
                 while (true) {
                     const { done, value } = await reader.read();
-                    if (done) {
-                        res.write('data: [DONE]\n\n');
-                        break;
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // Keep last potentially incomplete line
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const dataStr = line.substring(6).trim();
+                            if (dataStr === '[DONE]') continue;
+                            
+                            try {
+                                const json = JSON.parse(dataStr);
+                                const textChunk = json.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                                if (textChunk) {
+                                    fullAssistantText += textChunk;
+                                    // STABLE SSE FORMAT: Wrap in JSON text object
+                                    res.write(`data: ${JSON.stringify({ text: textChunk })}\n\n`);
+                                }
+                            } catch (e) {
+                                // Ignore non-JSON or partial data
+                            }
+                        }
                     }
-                    res.write(decoder.decode(value, { stream: true }));
                 }
-            } catch (streamError) {
-                console.error('Stream error:', streamError);
+                res.write('data: [DONE]\n\n');
+            } catch (err) {
+                console.error('Streaming loop error:', err);
             } finally {
                 res.end();
+                // 10. Background Save AI Response
+                if (conversationId && fullAssistantText) {
+                    supabase.from('messages').insert({
+                        conversation_id: conversationId,
+                        role: 'assistant',
+                        content: fullAssistantText
+                    }).catch(err => console.error('BG Assistant Message Save Error:', err));
+                }
             }
         } else {
             res.end();
         }
 
     } catch (error) {
-        console.error('High Performance Chat Error:', error);
+        console.error('Ultra-Low Latency Chat Error:', error);
         res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
         res.end();
     }
