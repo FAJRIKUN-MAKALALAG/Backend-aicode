@@ -563,28 +563,34 @@ app.delete('/api/code/:id', async (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
-    // 1. Send SSE headers IMMEDIATELY for maximum perceived speed
+    // 1. EARLY FLUSH: Set headers and flush immediately to reduce TTFB
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader('X-Accel-Buffering', 'no'); // Bypass Nginx buffering
+    res.flushHeaders();
+
+    // 2. DUMMY CHUNK: Force connection open immediately
+    res.write(' ');
 
     try {
         const { messages: currentMessages, conversationId, userId, mode, apiKey: providedKey } = req.body;
-        
-        // 2. Parallel Fetch: API Key and History
+        const isFastMode = mode === 'fast';
+        const historyLimit = isFastMode ? 10 : 20;
+
+        // 3. Parallel Fetch & Minimal Context
         const [keyResult, historyResult] = await Promise.all([
             // Fetch Key
             (!providedKey && userId) ? 
                 supabase.from('user_secrets').select('encrypted_value, iv').eq('user_id', userId).eq('key_name', 'GEMINI_API_KEY').single() : 
                 Promise.resolve({ data: null }),
-            // Fetch History (oldest to newest)
+            // Fetch History
             conversationId ? 
-                supabase.from('messages').select('role, content').eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(15) : 
+                supabase.from('messages').select('role, content').eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(historyLimit) : 
                 Promise.resolve({ data: [] })
         ]);
 
-        // 3. Resolve API Key
+        // 4. Resolve API Key
         let geminiKey = providedKey;
         if (!geminiKey && keyResult.data) {
             try {
@@ -600,18 +606,29 @@ app.post('/api/chat', async (req, res) => {
             return res.end();
         }
 
-        // 4. Map History to Gemini Format
+        // 5. Map History efficiently
         const historicalContext = (historyResult.data || []).reverse().map(msg => ({
             role: msg.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: msg.content }]
         }));
 
-        // 5. Explicit Model Selection
-        // reasoning -> gemini-3-flash-preview (per user request, falling back to 1.5 if needed)
-        // fast -> gemini-1.5-flash
-        let selectedModel = (mode === 'reasoning') ? 'gemini-3-flash-preview' : 'gemini-1.5-flash';
+        // 6. Asynchronous Background Saving (DO NOT AWAIT)
+        // We assume the frontend sends the latest user message in currentMessages
+        const lastMessage = currentMessages[currentMessages.length - 1];
+        if (conversationId && lastMessage) {
+            supabase.from('messages').insert({
+                conversation_id: conversationId,
+                role: lastMessage.role,
+                content: lastMessage.content
+            }).then(({ error }) => {
+                if (error) console.error('Background message saving failed:', error);
+            });
+        }
 
-        // 6. Construct Request Body (using system_instruction for performance)
+        // 7. Model Selection
+        let selectedModel = isFastMode ? 'gemini-1.5-flash' : 'gemini-3-flash-preview';
+
+        // 8. Call Gemini with SSE pipe
         const requestBody = {
             contents: [
                 ...historicalContext,
@@ -625,11 +642,10 @@ app.post('/api/chat', async (req, res) => {
             }
         };
 
-        // 7. Call Gemini with Fallback Logic
-        async function fetchGemini(model) {
-            console.log(`Calling model: ${model}`);
+        async function fetchGeminiWithStreaming(modelName) {
+            console.log(`Starting Gemini stream: ${modelName}`);
             return fetch(
-                `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${geminiKey}`,
+                `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${geminiKey}`,
                 {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -638,12 +654,12 @@ app.post('/api/chat', async (req, res) => {
             );
         }
 
-        let response = await fetchGemini(selectedModel);
+        let response = await fetchGeminiWithStreaming(selectedModel);
 
-        // Fallback if the primary model fails (e.g., 404, 429, 503)
+        // Fallback or Error handling
         if (!response.ok && selectedModel !== 'gemini-1.5-flash') {
-            console.warn(`Model ${selectedModel} failed. Falling back to gemini-1.5-flash.`);
-            response = await fetchGemini('gemini-1.5-flash');
+            console.warn(`Model ${selectedModel} failed. Falling back to 1.5-flash.`);
+            response = await fetchGeminiWithStreaming('gemini-1.5-flash');
         }
 
         if (!response.ok) {
@@ -652,7 +668,7 @@ app.post('/api/chat', async (req, res) => {
             return res.end();
         }
 
-        // 8. Stream the response
+        // 9. Stream pipe
         if (response.body) {
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
@@ -676,7 +692,7 @@ app.post('/api/chat', async (req, res) => {
         }
 
     } catch (error) {
-        console.error('Chat error:', error);
+        console.error('High Performance Chat Error:', error);
         res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
         res.end();
     }
