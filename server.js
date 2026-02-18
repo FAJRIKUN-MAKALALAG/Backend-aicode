@@ -4,6 +4,7 @@ require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
 const { encrypt, decrypt } = require('./utils/crypto');
 const { systemPrompt } = require('./prompts');
+const { GoogleGenAI } = require('@google/genai');
 
 const rateLimit = require('express-rate-limit');
 
@@ -602,7 +603,7 @@ app.post('/api/chat', async (req, res) => {
             return res.end();
         }
 
-        // 5. Map History
+        // 5. Map History for SDK
         const historicalContext = (historyResult.data || []).reverse().map(msg => ({
             role: msg.role === 'assistant' ? 'model' : 'user',
             parts: [{ text: msg.content }]
@@ -618,12 +619,13 @@ app.post('/api/chat', async (req, res) => {
             }).catch(err => console.error('BG User Save Error:', err));
         }
 
-        // 7. Fixed Model & Dynamic Thinking Level (Senior AI Engineer standard)
-        const selectedModel = 'gemini-3-flash-preview'; 
+        // 7. SDK Initialization & ModelConfig
+        const client = new GoogleGenAI({ apiKey: geminiKey });
         const thinkingLevel = (mode === 'reasoning') ? 'medium' : 'minimal';
-
-        // 8. API Call Construction with Generation Config
-        const requestBody = {
+        
+        // 8. Stream Generation with SDK
+        const stream = await client.models.generateContentStream({
+            model: 'gemini-3-flash-preview',
             contents: [
                 ...historicalContext,
                 ...currentMessages.map(m => ({
@@ -631,82 +633,44 @@ app.post('/api/chat', async (req, res) => {
                     parts: [{ text: m.content }]
                 }))
             ],
-            system_instruction: {
-                parts: [{ text: systemPrompt }]
-            },
-            generationConfig: {
-                thinking_level: thinkingLevel
+            systemInstruction: systemPrompt,
+            config: {
+                thinkingConfig: {
+                    includeThoughts: true,
+                    thinkingLevel: thinkingLevel
+                }
             }
-        };
+        });
 
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${selectedModel}:streamGenerateContent?alt=sse&key=${geminiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody)
-            }
-        );
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            res.write(`data: ${JSON.stringify({ error: 'Gemini API Error', details: errorText })}\n\n`);
-            return res.end();
-        }
-
-        // 9. Stable SSE & Async Assistant Save
+        // 9. Stable SSE Consumption & Async Assistant Save
         let fullAssistantText = "";
-        if (response.body) {
-            const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let buffer = "";
-
-            try {
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop();
-
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const dataStr = line.substring(6).trim();
-                            if (dataStr === '[DONE]') continue;
-                            
-                            try {
-                                const json = JSON.parse(dataStr);
-                                const textChunk = json.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                                if (textChunk) {
-                                    fullAssistantText += textChunk;
-                                    // STABLE SSE: Wrap in JSON text object for frontend
-                                    res.write(`data: ${JSON.stringify({ text: textChunk })}\n\n`);
-                                }
-                            } catch (e) {}
-                        }
-                    }
-                }
-                res.write('data: [DONE]\n\n');
-            } catch (err) {
-                console.error('Stream error:', err);
-            } finally {
-                res.end();
-                // 10. Background Save AI Response
-                if (conversationId && fullAssistantText) {
-                    supabase.from('messages').insert({
-                        conversation_id: conversationId,
-                        role: 'assistant',
-                        content: fullAssistantText
-                    }).catch(err => console.error('BG Assistant Save Error:', err));
+        try {
+            for await (const chunk of stream) {
+                const textChunk = chunk.text();
+                if (textChunk) {
+                    fullAssistantText += textChunk;
+                    // Predictable SSE Format for frontend
+                    res.write(`data: ${JSON.stringify({ text: textChunk })}\n\n`);
                 }
             }
-        } else {
+            res.write('data: [DONE]\n\n');
+        } catch (streamErr) {
+            console.error('SDK Streaming Error:', streamErr);
+            res.write(`data: ${JSON.stringify({ error: 'Streaming failed', details: streamErr.message })}\n\n`);
+        } finally {
             res.end();
+            // 10. Background Save AI Response
+            if (conversationId && fullAssistantText) {
+                supabase.from('messages').insert({
+                    conversation_id: conversationId,
+                    role: 'assistant',
+                    content: fullAssistantText
+                }).catch(err => console.error('BG Assistant Save Error:', err));
+            }
         }
 
     } catch (error) {
-        console.error('Gemini 3 Flash Error:', error);
+        console.error('SDK Chat Error:', error);
         res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
         res.end();
     }
