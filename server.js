@@ -563,107 +563,97 @@ app.delete('/api/code/:id', async (req, res) => {
 });
 
 app.post('/api/chat', async (req, res) => {
+    // 1. Send SSE headers IMMEDIATELY for maximum perceived speed
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
     try {
-        const { messages: currentMessages, conversationId, userId, apiKey: providedKey } = req.body;
+        const { messages: currentMessages, conversationId, userId, mode, apiKey: providedKey } = req.body;
         
-        // 1. Determine which API Key to use
+        // 2. Parallel Fetch: API Key and History
+        const [keyResult, historyResult] = await Promise.all([
+            // Fetch Key
+            (!providedKey && userId) ? 
+                supabase.from('user_secrets').select('encrypted_value, iv').eq('user_id', userId).eq('key_name', 'GEMINI_API_KEY').single() : 
+                Promise.resolve({ data: null }),
+            // Fetch History (oldest to newest)
+            conversationId ? 
+                supabase.from('messages').select('role, content').eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(15) : 
+                Promise.resolve({ data: [] })
+        ]);
+
+        // 3. Resolve API Key
         let geminiKey = providedKey;
-
-        // If no key provided in body, try to fetch from DB for the user
-        if (!geminiKey && userId) {
-            const { data, error } = await supabase
-                .from('user_secrets')
-                .select('encrypted_value, iv')
-                .eq('user_id', userId)
-                .eq('key_name', 'GEMINI_API_KEY')
-                .single();
-
-            if (data) {
-                try {
-                    geminiKey = decrypt(data.encrypted_value, data.iv);
-                } catch (e) {
-                    console.error('Decryption failed:', e);
-                }
+        if (!geminiKey && keyResult.data) {
+            try {
+                geminiKey = decrypt(keyResult.data.encrypted_value, keyResult.data.iv);
+            } catch (e) {
+                console.error('Decryption failed:', e);
             }
         }
-
-        // Fallback to server env var if still no key
-        if (!geminiKey) {
-             geminiKey = process.env.GEMINI_API_KEY; 
-        }
+        geminiKey = geminiKey || process.env.GEMINI_API_KEY;
 
         if (!geminiKey || geminiKey === 'your_gemini_api_key') {
-            return res.status(400).json({ error: 'API Key missing. Please set it in Settings.' });
+            res.write(`data: ${JSON.stringify({ error: 'API Key missing. Please set it in Settings.' })}\n\n`);
+            return res.end();
         }
 
-        // 2. Fetch historical context from Supabase (Context Awareness)
-        let historicalContext = [];
-        if (conversationId) {
-            try {
-                const { data: history, error: historyError } = await supabase
-                    .from('messages')
-                    .select('role, content')
-                    .eq('conversation_id', conversationId)
-                    .order('created_at', { ascending: false })
-                    .limit(20);
+        // 4. Map History to Gemini Format
+        const historicalContext = (historyResult.data || []).reverse().map(msg => ({
+            role: msg.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: msg.content }]
+        }));
 
-                if (historyError) throw historyError;
-                
-                // Reverse to get chronological order and map to Gemini format
-                historicalContext = history.reverse().map(msg => ({
-                    role: msg.role === 'assistant' ? 'model' : 'user',
-                    parts: [{ text: msg.content }]
-                }));
-            } catch (dbError) {
-                console.error('Database history fetch failed:', dbError);
-                // Continue with just current messages if history fetch fails
-            }
-        }
-        
-        // 3. Construct the full prompt context
-        const contents = [
-            {
-                role: "user",
+        // 5. Explicit Model Selection
+        // reasoning -> gemini-3-flash-preview (per user request, falling back to 1.5 if needed)
+        // fast -> gemini-1.5-flash
+        let selectedModel = (mode === 'reasoning') ? 'gemini-3-flash-preview' : 'gemini-1.5-flash';
+
+        // 6. Construct Request Body (using system_instruction for performance)
+        const requestBody = {
+            contents: [
+                ...historicalContext,
+                ...currentMessages.map(m => ({
+                    role: m.role === 'assistant' ? 'model' : 'user',
+                    parts: [{ text: m.content }]
+                }))
+            ],
+            system_instruction: {
                 parts: [{ text: systemPrompt }]
-            },
-            ...historicalContext,
-            ...currentMessages.map(m => ({
-                role: m.role === 'assistant' ? 'model' : 'user',
-                parts: [{ text: m.content }]
-            }))
-        ];
-
-        // 4. Call Google Gemini API with streaming
-        const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:streamGenerateContent?alt=sse&key=${geminiKey}`,
-            {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents })
             }
-        );
+        };
 
-        // Log response status for debugging
-        console.log('Gemini Response Status:', response.status);
-        
+        // 7. Call Gemini with Fallback Logic
+        async function fetchGemini(model) {
+            console.log(`Calling model: ${model}`);
+            return fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${geminiKey}`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(requestBody)
+                }
+            );
+        }
+
+        let response = await fetchGemini(selectedModel);
+
+        // Fallback if the primary model fails (e.g., 404, 429, 503)
+        if (!response.ok && selectedModel !== 'gemini-1.5-flash') {
+            console.warn(`Model ${selectedModel} failed. Falling back to gemini-1.5-flash.`);
+            response = await fetchGemini('gemini-1.5-flash');
+        }
+
         if (!response.ok) {
             const errorText = await response.text();
-            console.error('Gemini API Error:', errorText);
-            return res.status(response.status).json({ 
-                error: `Gemini API Error: ${response.status}`,
-                details: errorText 
-            });
+            res.write(`data: ${JSON.stringify({ error: 'Gemini API Error', details: errorText })}\n\n`);
+            return res.end();
         }
 
-        // Set SSE headers for streaming
-        res.setHeader('Content-Type', 'text/event-stream');
-        res.setHeader('Cache-Control', 'no-cache');
-        res.setHeader('Connection', 'keep-alive');
-        res.setHeader('X-Accel-Buffering', 'no'); // Disable Nginx buffering
-
-        // Stream the response from Gemini to frontend
+        // 8. Stream the response
         if (response.body) {
-            console.log('Starting to stream response...');
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             
@@ -671,14 +661,10 @@ app.post('/api/chat', async (req, res) => {
                 while (true) {
                     const { done, value } = await reader.read();
                     if (done) {
-                        console.log('Stream completed.');
                         res.write('data: [DONE]\n\n');
                         break;
                     }
-                    
-                    // Decode and forward the SSE data
-                    const chunk = decoder.decode(value, { stream: true });
-                    res.write(chunk);
+                    res.write(decoder.decode(value, { stream: true }));
                 }
             } catch (streamError) {
                 console.error('Stream error:', streamError);
@@ -686,17 +672,13 @@ app.post('/api/chat', async (req, res) => {
                 res.end();
             }
         } else {
-            console.error('No response body from Gemini');
             res.end();
         }
 
     } catch (error) {
         console.error('Chat error:', error);
-        if (!res.headersSent) {
-            res.status(500).json({ error: error.message });
-        } else {
-            res.end();
-        }
+        res.write(`data: ${JSON.stringify({ error: error.message })}\n\n`);
+        res.end();
     }
 });
 
