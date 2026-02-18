@@ -29,9 +29,6 @@ const corsOptions = {
 // Enable CORS for all routes
 app.use(cors(corsOptions));
 
-// Explicitly handle preflight OPTIONS requests for all routes (Express 5 syntax)
-app.options('(.*)', cors(corsOptions));
-
 // Rate limiting: 100 requests per 15 minutes
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
