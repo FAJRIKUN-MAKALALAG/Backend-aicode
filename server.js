@@ -255,6 +255,38 @@ app.get('/api/keys/:userId', async (req, res) => {
     }
 });
 
+// GET decrypted API key value — requires valid Bearer token (user fetches their own key)
+app.get('/api/keys/:userId/value', async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        // Verify Bearer token belongs to this user
+        const authHeader = req.headers.authorization;
+        const token = authHeader?.replace('Bearer ', '');
+        if (!token) return res.status(401).json({ error: 'No auth token provided' });
+
+        const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+        if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
+        if (user.id !== userId) return res.status(403).json({ error: 'Forbidden' });
+
+        const { data, error } = await supabase
+            .from('user_secrets')
+            .select('encrypted_value, iv')
+            .eq('user_id', userId)
+            .eq('key_name', 'GEMINI_API_KEY')
+            .single();
+
+        if (error && error.code !== 'PGRST116') throw error;
+        if (!data) return res.status(404).json({ error: 'No API key found. Please add one in Settings.' });
+
+        const decrypted = decrypt(data.encrypted_value, data.iv);
+        res.json({ apiKey: decrypted });
+    } catch (error) {
+        console.error('Decrypt Key Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // Save User API Key
 app.post('/api/keys', async (req, res) => {
     try {
