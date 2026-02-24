@@ -31,12 +31,14 @@ pipeline {
                     string(credentialsId: 'SUPABASE_URL', variable: 'SUPA_URL'),
                     string(credentialsId: 'SUPABASE_KEY', variable: 'SUPA_KEY'),
                     string(credentialsId: 'ENCRYPTION_KEY', variable: 'ENC_KEY'),
+                    string(credentialsId: 'GROQ_API_KEY', variable: 'GROQ_KEY'),
                 ]) {
                     sh """
                         echo "PORT=${BACKEND_PORT}" > .env
                         echo "SUPABASE_URL=${SUPA_URL}" >> .env
                         echo "SUPABASE_KEY=${SUPA_KEY}" >> .env
                         echo "ENCRYPTION_KEY=${ENC_KEY}" >> .env
+                        echo "GROQ_API_KEY=${GROQ_KEY}" >> .env
                         echo "✅ File .env berhasil dibuat"
                     """
                 }

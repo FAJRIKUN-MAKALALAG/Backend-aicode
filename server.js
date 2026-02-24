@@ -5,6 +5,7 @@ const { createClient } = require('@supabase/supabase-js');
 const { encrypt, decrypt } = require('./utils/crypto');
 const { systemPrompt } = require('./prompts');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const Groq = require('groq-sdk');
 
 const rateLimit = require('express-rate-limit');
 
@@ -16,15 +17,15 @@ app.set('trust proxy', 1);
 
 // Explicit CORS configuration — MUST be before rate limiter or any route
 const corsOptions = {
-  origin: [
-    'https://unklab-aicode.online',
-    'http://localhost:5173',
-    'http://localhost:3000',
-  ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  credentials: true,
-  optionsSuccessStatus: 200, // Some browsers (IE11) choke on 204
+    origin: [
+        'https://unklab-aicode.online',
+        'http://localhost:5173',
+        'http://localhost:3000',
+    ],
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true,
+    optionsSuccessStatus: 200, // Some browsers (IE11) choke on 204
 };
 
 // Enable CORS for all routes
@@ -32,9 +33,9 @@ app.use(cors(corsOptions));
 
 // Rate limiting: 100 requests per 15 minutes
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.'
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100, // limit each IP to 100 requests per windowMs
+    message: 'Too many requests from this IP, please try again later.'
 });
 
 // Apply rate limiting after CORS
@@ -49,18 +50,18 @@ const supabaseKey = process.env.SUPABASE_KEY;
 let supabase = null;
 
 if (supabaseUrl && supabaseKey && supabaseUrl.startsWith('http')) {
-  try {
-    supabase = createClient(supabaseUrl, supabaseKey);
-  } catch (e) {
-    console.warn('Failed to initialize Supabase client:', e.message);
-  }
+    try {
+        supabase = createClient(supabaseUrl, supabaseKey);
+    } catch (e) {
+        console.warn('Failed to initialize Supabase client:', e.message);
+    }
 } else {
-  console.warn('Supabase credentials not found or invalid in environment');
+    console.warn('Supabase credentials not found or invalid in environment');
 }
 
 // Routes
 app.get('/', (req, res) => {
-  res.send('AI Code Backend Running');
+    res.send('AI Code Backend Running');
 });
 
 // ========== AUTHENTICATION API ==========
@@ -69,7 +70,7 @@ app.get('/', (req, res) => {
 app.post('/api/auth/signup', async (req, res) => {
     try {
         const { email, password, username } = req.body;
-        
+
         if (!email || !password) {
             return res.status(400).json({ error: 'Email and password required' });
         }
@@ -77,7 +78,7 @@ app.post('/api/auth/signup', async (req, res) => {
         const { data, error } = await supabase.auth.signUp({
             email,
             password,
-            options: { 
+            options: {
                 data: { username: username || email.split('@')[0] }
             }
         });
@@ -97,7 +98,7 @@ app.post('/api/auth/signup', async (req, res) => {
             console.log('Profile creation note:', profileError.message);
         }
 
-        res.json({ 
+        res.json({
             user: {
                 id: data.user.id,
                 email: data.user.email,
@@ -119,7 +120,7 @@ app.post('/api/auth/signup', async (req, res) => {
 app.post('/api/auth/login', async (req, res) => {
     try {
         const { email, password } = req.body;
-        
+
         if (!email || !password) {
             return res.status(400).json({ error: 'Email and password required' });
         }
@@ -131,7 +132,7 @@ app.post('/api/auth/login', async (req, res) => {
 
         if (error) throw error;
 
-        res.json({ 
+        res.json({
             user: {
                 id: data.user.id,
                 email: data.user.email,
@@ -154,14 +155,14 @@ app.post('/api/auth/logout', async (req, res) => {
     try {
         const authHeader = req.headers.authorization;
         const token = authHeader?.replace('Bearer ', '');
-        
+
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });
         }
 
         // Set the auth token for this request
         const { error } = await supabase.auth.admin.signOut(token);
-        
+
         if (error) throw error;
 
         res.json({ success: true, message: 'Logged out successfully' });
@@ -177,7 +178,7 @@ app.post('/api/auth/verify', async (req, res) => {
     try {
         const authHeader = req.headers.authorization;
         const token = authHeader?.replace('Bearer ', '');
-        
+
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });
         }
@@ -186,7 +187,7 @@ app.post('/api/auth/verify', async (req, res) => {
 
         if (error) throw error;
 
-        res.json({ 
+        res.json({
             user: {
                 id: user.id,
                 email: user.email,
@@ -203,7 +204,7 @@ app.post('/api/auth/verify', async (req, res) => {
 app.post('/api/auth/refresh', async (req, res) => {
     try {
         const { refresh_token } = req.body;
-        
+
         if (!refresh_token) {
             return res.status(400).json({ error: 'Refresh token required' });
         }
@@ -214,7 +215,7 @@ app.post('/api/auth/refresh', async (req, res) => {
 
         if (error) throw error;
 
-        res.json({ 
+        res.json({
             session: {
                 access_token: data.session.access_token,
                 refresh_token: data.session.refresh_token,
@@ -232,7 +233,7 @@ app.post('/api/auth/refresh', async (req, res) => {
 app.get('/api/keys/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        
+
         const { data, error } = await supabase
             .from('user_secrets')
             .select('key_name, created_at')
@@ -244,7 +245,7 @@ app.get('/api/keys/:userId', async (req, res) => {
             throw error;
         }
 
-        res.json({ 
+        res.json({
             hasKey: !!data,
             keyName: data?.key_name,
             createdAt: data?.created_at
@@ -301,8 +302,8 @@ app.post('/api/keys', async (req, res) => {
         // Store in DB (upsert)
         const { error } = await supabase
             .from('user_secrets')
-            .upsert({ 
-                user_id: userId, 
+            .upsert({
+                user_id: userId,
                 key_name: 'GEMINI_API_KEY',
                 encrypted_value,
                 iv
@@ -323,7 +324,7 @@ app.post('/api/keys', async (req, res) => {
 app.get('/api/conversations/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        
+
         const { data, error } = await supabase
             .from('conversations')
             .select('*')
@@ -343,7 +344,7 @@ app.get('/api/conversations/:userId', async (req, res) => {
 app.post('/api/conversations', async (req, res) => {
     try {
         const { userId, title } = req.body;
-        
+
         if (!userId || !title) {
             return res.status(400).json({ error: 'Missing userId or title' });
         }
@@ -368,7 +369,7 @@ app.put('/api/conversations/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { title } = req.body;
-        
+
         if (!title) {
             return res.status(400).json({ error: 'Missing title' });
         }
@@ -414,7 +415,7 @@ app.delete('/api/conversations/:id', async (req, res) => {
 app.get('/api/messages/:conversationId', async (req, res) => {
     try {
         const { conversationId } = req.params;
-        
+
         const { data, error } = await supabase
             .from('messages')
             .select('*')
@@ -434,7 +435,7 @@ app.get('/api/messages/:conversationId', async (req, res) => {
 app.post('/api/messages', async (req, res) => {
     try {
         const { conversationId, role, content } = req.body;
-        
+
         if (!conversationId || !role || !content) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
@@ -479,7 +480,7 @@ app.delete('/api/messages/:id', async (req, res) => {
 app.get('/api/code/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
-        
+
         const { data, error } = await supabase
             .from('code_snippets')
             .select('*')
@@ -499,7 +500,7 @@ app.get('/api/code/:userId', async (req, res) => {
 app.get('/api/code/conversation/:conversationId', async (req, res) => {
     try {
         const { conversationId } = req.params;
-        
+
         const { data, error } = await supabase
             .from('code_snippets')
             .select('*')
@@ -519,19 +520,19 @@ app.get('/api/code/conversation/:conversationId', async (req, res) => {
 app.post('/api/code', async (req, res) => {
     try {
         const { userId, conversationId, title, code_content, language } = req.body;
-        
+
         if (!userId || !code_content || !language) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
         const { data, error } = await supabase
             .from('code_snippets')
-            .insert({ 
-                user_id: userId, 
+            .insert({
+                user_id: userId,
                 conversation_id: conversationId || null,
                 title: title || null,
-                code_content, 
-                language 
+                code_content,
+                language
             })
             .select()
             .single();
@@ -550,7 +551,7 @@ app.put('/api/code/:id', async (req, res) => {
     try {
         const { id } = req.params;
         const { title, code_content, language } = req.body;
-        
+
         const updates = {};
         if (title !== undefined) updates.title = title;
         if (code_content !== undefined) updates.code_content = code_content;
@@ -614,14 +615,14 @@ app.post('/api/chat', async (req, res) => {
 
     try {
         const { messages: currentMessages, conversationId, userId, mode, apiKey: providedKey } = req.body;
-        
+
         // 3. Parallel Fetch: API Key and 15-message history
         const [keyResult, historyResult] = await Promise.all([
-            (!providedKey && userId) ? 
-                supabase.from('user_secrets').select('encrypted_value, iv').eq('user_id', userId).eq('key_name', 'GEMINI_API_KEY').single() : 
+            (!providedKey && userId) ?
+                supabase.from('user_secrets').select('encrypted_value, iv').eq('user_id', userId).eq('key_name', 'GEMINI_API_KEY').single() :
                 Promise.resolve({ data: null }),
-            conversationId ? 
-                supabase.from('messages').select('role, content').eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(15) : 
+            conversationId ?
+                supabase.from('messages').select('role, content').eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(15) :
                 Promise.resolve({ data: [] })
         ]);
 
@@ -669,7 +670,7 @@ app.post('/api/chat', async (req, res) => {
         // 8. SDK Initialization (Using gemini-3-flash-preview)
         console.log("[DEBUG] Initializing SDK with Model: gemini-3-flash-preview");
         const genAI = new GoogleGenerativeAI(geminiKey);
-        const model = genAI.getGenerativeModel({ 
+        const model = genAI.getGenerativeModel({
             model: "gemini-3-flash-preview",
             systemInstruction: finalSystemInstruction
         });
@@ -707,7 +708,7 @@ app.post('/api/chat', async (req, res) => {
             console.log("--- RESPONSE KELUAR ---");
             console.log("AI Response Length:", fullAssistantText.length);
             console.log("Assistant Text Preview:", fullAssistantText.substring(0, 50) + "...");
-            
+
             res.end();
             // 11. Background Save AI Response
             if (conversationId && fullAssistantText) {
@@ -726,6 +727,64 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
+// ========== GROQ FALLBACK CHAT API ==========
+app.post('/api/chat/groq-fallback', async (req, res) => {
+    const { messages } = req.body;
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+        return res.status(400).json({ error: 'messages array is required' });
+    }
+
+    // Auth check
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'No auth token' });
+    try {
+        const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
+        if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
+    } catch (e) {
+        return res.status(401).json({ error: 'Auth check failed' });
+    }
+
+    const groqKey = process.env.GROQ_API_KEY;
+    if (!groqKey) return res.status(500).json({ error: 'Groq API key not configured' });
+
+    // SSE headers
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+    res.flushHeaders();
+
+    try {
+        const groq = new Groq({ apiKey: groqKey });
+        const groqMessages = [
+            { role: 'system', content: systemPrompt },
+            ...messages.map(m => ({ role: m.role, content: m.content }))
+        ];
+
+        const stream = await groq.chat.completions.create({
+            messages: groqMessages,
+            model: 'moonshotai/kimi-k2-instruct',
+            temperature: 0.6,
+            max_completion_tokens: 4096,
+            top_p: 1,
+            stream: true,
+            stop: null
+        });
+
+        for await (const chunk of stream) {
+            const text = chunk.choices[0]?.delta?.content || '';
+            if (text) res.write('data: ' + JSON.stringify({ text }) + '\n\n');
+        }
+        res.write('data: [DONE]\n\n');
+        res.end();
+
+    } catch (error) {
+        console.error('[GROQ FALLBACK ERROR]', error.message);
+        res.write('data: ' + JSON.stringify({ error: error.message }) + '\n\n');
+        res.end();
+    }
+});
+
 app.listen(port, () => {
-  console.log(`Server listening on port ${port}`);
+    console.log(`Server listening on port ${port}`);
 });
