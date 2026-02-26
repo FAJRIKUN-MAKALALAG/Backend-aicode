@@ -59,6 +59,20 @@ if (supabaseUrl && supabaseKey && supabaseUrl.startsWith('http')) {
     console.warn('Supabase credentials not found or invalid in environment');
 }
 
+// ========== AUTH MIDDLEWARE ==========
+async function requireAuth(req, res, next) {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) return res.status(401).json({ error: 'No auth token provided' });
+    try {
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (error || !user) return res.status(401).json({ error: 'Invalid or expired token' });
+        req.user = user;
+        next();
+    } catch (e) {
+        return res.status(401).json({ error: 'Auth check failed' });
+    }
+}
+
 // Routes
 app.get('/', (req, res) => {
     res.send('AI Code Backend Running');
@@ -230,9 +244,14 @@ app.post('/api/auth/refresh', async (req, res) => {
 
 
 // Get User API Key (check if exists, return masked preview)
-app.get('/api/keys/:userId', async (req, res) => {
+app.get('/api/keys/:userId', requireAuth, async (req, res) => {
     try {
         const { userId } = req.params;
+
+        // Ownership check: hanya pemilik yang boleh melihat key-nya sendiri
+        if (req.user.id !== userId) {
+            return res.status(403).json({ error: 'Forbidden: access denied' });
+        }
 
         const { data, error } = await supabase
             .from('user_secrets')
@@ -271,18 +290,12 @@ app.get('/api/keys/:userId', async (req, res) => {
 });
 
 // GET decrypted API key value — requires valid Bearer token (user fetches their own key)
-app.get('/api/keys/:userId/value', async (req, res) => {
+app.get('/api/keys/:userId/value', requireAuth, async (req, res) => {
     try {
         const { userId } = req.params;
 
-        // Verify Bearer token belongs to this user
-        const authHeader = req.headers.authorization;
-        const token = authHeader?.replace('Bearer ', '');
-        if (!token) return res.status(401).json({ error: 'No auth token provided' });
-
-        const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-        if (authErr || !user) return res.status(401).json({ error: 'Invalid or expired token' });
-        if (user.id !== userId) return res.status(403).json({ error: 'Forbidden' });
+        // Ownership check (req.user sudah diisi oleh requireAuth)
+        if (req.user.id !== userId) return res.status(403).json({ error: 'Forbidden' });
 
         const { data, error } = await supabase
             .from('user_secrets')
@@ -303,11 +316,14 @@ app.get('/api/keys/:userId/value', async (req, res) => {
 });
 
 // Save User API Key
-app.post('/api/keys', async (req, res) => {
+app.post('/api/keys', requireAuth, async (req, res) => {
     try {
-        const { userId, apiKey } = req.body;
-        if (!userId || !apiKey) {
-            return res.status(400).json({ error: 'Missing userId or apiKey' });
+        const { apiKey } = req.body;
+        // userId selalu diambil dari token, bukan dari body (mencegah spoofing)
+        const userId = req.user.id;
+
+        if (!apiKey) {
+            return res.status(400).json({ error: 'Missing apiKey' });
         }
 
         // Encrypt the key
@@ -335,9 +351,14 @@ app.post('/api/keys', async (req, res) => {
 // ========== CONVERSATIONS API ==========
 
 // GET all conversations for a user
-app.get('/api/conversations/:userId', async (req, res) => {
+app.get('/api/conversations/:userId', requireAuth, async (req, res) => {
     try {
         const { userId } = req.params;
+
+        // Ownership check: user hanya bisa lihat conversations miliknya sendiri
+        if (req.user.id !== userId) {
+            return res.status(403).json({ error: 'Forbidden: access denied' });
+        }
 
         const { data, error } = await supabase
             .from('conversations')
@@ -355,12 +376,14 @@ app.get('/api/conversations/:userId', async (req, res) => {
 });
 
 // POST create new conversation
-app.post('/api/conversations', async (req, res) => {
+app.post('/api/conversations', requireAuth, async (req, res) => {
     try {
-        const { userId, title } = req.body;
+        const { title } = req.body;
+        // userId selalu dari token, tidak percaya body
+        const userId = req.user.id;
 
-        if (!userId || !title) {
-            return res.status(400).json({ error: 'Missing userId or title' });
+        if (!title) {
+            return res.status(400).json({ error: 'Missing title' });
         }
 
         const { data, error } = await supabase
@@ -405,9 +428,23 @@ app.put('/api/conversations/:id', async (req, res) => {
 });
 
 // DELETE conversation
-app.delete('/api/conversations/:id', async (req, res) => {
+app.delete('/api/conversations/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
+
+        // Ownership check: pastikan conversation ini milik user yang request
+        const { data: conv, error: fetchErr } = await supabase
+            .from('conversations')
+            .select('user_id')
+            .eq('id', id)
+            .single();
+
+        if (fetchErr || !conv) {
+            return res.status(404).json({ error: 'Conversation not found' });
+        }
+        if (conv.user_id !== req.user.id) {
+            return res.status(403).json({ error: 'Forbidden: not your conversation' });
+        }
 
         const { error } = await supabase
             .from('conversations')
@@ -426,9 +463,23 @@ app.delete('/api/conversations/:id', async (req, res) => {
 // ========== MESSAGES API ==========
 
 // GET all messages in a conversation
-app.get('/api/messages/:conversationId', async (req, res) => {
+app.get('/api/messages/:conversationId', requireAuth, async (req, res) => {
     try {
         const { conversationId } = req.params;
+
+        // Ownership check: pastikan conversation milik user yang request
+        const { data: conv, error: convErr } = await supabase
+            .from('conversations')
+            .select('user_id')
+            .eq('id', conversationId)
+            .single();
+
+        if (convErr || !conv) {
+            return res.status(404).json({ error: 'Conversation not found' });
+        }
+        if (conv.user_id !== req.user.id) {
+            return res.status(403).json({ error: 'Forbidden: not your conversation' });
+        }
 
         const { data, error } = await supabase
             .from('messages')
@@ -742,20 +793,10 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // ========== GROQ FALLBACK CHAT API ==========
-app.post('/api/chat/groq-fallback', async (req, res) => {
+app.post('/api/chat/groq-fallback', requireAuth, async (req, res) => {
     const { messages } = req.body;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'messages array is required' });
-    }
-
-    // Auth check
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) return res.status(401).json({ error: 'No auth token' });
-    try {
-        const { data: { user }, error: authErr } = await supabase.auth.getUser(token);
-        if (authErr || !user) return res.status(401).json({ error: 'Invalid token' });
-    } catch (e) {
-        return res.status(401).json({ error: 'Auth check failed' });
     }
 
     const groqKey = process.env.GROQ_API_KEY;
