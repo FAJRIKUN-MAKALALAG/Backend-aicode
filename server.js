@@ -229,14 +229,14 @@ app.post('/api/auth/refresh', async (req, res) => {
 });
 
 
-// Get User API Key (check if exists)
+// Get User API Key (check if exists, return masked preview)
 app.get('/api/keys/:userId', async (req, res) => {
     try {
         const { userId } = req.params;
 
         const { data, error } = await supabase
             .from('user_secrets')
-            .select('key_name, created_at')
+            .select('key_name, encrypted_value, iv, created_at')
             .eq('user_id', userId)
             .eq('key_name', 'GEMINI_API_KEY')
             .single();
@@ -245,10 +245,24 @@ app.get('/api/keys/:userId', async (req, res) => {
             throw error;
         }
 
+        let prefix = null;
+        let suffix = null;
+        if (data) {
+            try {
+                const decrypted = decrypt(data.encrypted_value, data.iv);
+                prefix = decrypted.substring(0, 4);         // e.g. "AIza"
+                suffix = decrypted.slice(-4);               // e.g. "xK3p"
+            } catch (e) {
+                console.warn('Could not decrypt key for preview:', e.message);
+            }
+        }
+
         res.json({
             hasKey: !!data,
             keyName: data?.key_name,
-            createdAt: data?.created_at
+            createdAt: data?.created_at,
+            prefix,   // first 4 chars — e.g. "AIza"
+            suffix    // last 4 chars  — e.g. "xK3p"
         });
     } catch (error) {
         console.error('Get Key Error:', error);
