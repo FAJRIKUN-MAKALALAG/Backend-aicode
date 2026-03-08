@@ -214,6 +214,62 @@ app.post('/api/auth/verify', async (req, res) => {
     }
 });
 
+// POST forgot-password - Send reset password email
+app.post('/api/auth/forgot-password', async (req, res) => {
+    try {
+        const { email } = req.body;
+
+        if (!email) {
+            return res.status(400).json({ error: 'Email required' });
+        }
+
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+            redirectTo: `${process.env.FRONTEND_URL || 'https://unklab-aicode.online'}/reset-password`
+        });
+
+        if (error) throw error;
+
+        // Always return success to avoid email enumeration attacks
+        res.json({ success: true, message: 'If this email is registered, a reset link has been sent.' });
+    } catch (error) {
+        console.error('Forgot Password Error:', error);
+        res.status(400).json({ error: error.message });
+    }
+});
+
+// POST reset-password - Update to new password using recovery token
+app.post('/api/auth/reset-password', async (req, res) => {
+    try {
+        const { access_token, refresh_token, password } = req.body;
+
+        if (!access_token || !password) {
+            return res.status(400).json({ error: 'access_token and password are required' });
+        }
+
+        if (password.length < 6) {
+            return res.status(400).json({ error: 'Password must be at least 6 characters' });
+        }
+
+        // Set the session with the recovery token from the email link
+        const { error: sessionError } = await supabase.auth.setSession({
+            access_token,
+            refresh_token: refresh_token || access_token,
+        });
+
+        if (sessionError) throw sessionError;
+
+        // Update the user's password
+        const { error: updateError } = await supabase.auth.updateUser({ password });
+
+        if (updateError) throw updateError;
+
+        res.json({ success: true, message: 'Password updated successfully' });
+    } catch (error) {
+        console.error('Reset Password Error:', error);
+        res.status(400).json({ error: error.message });
+    }
+});
+
 // POST refresh - Refresh access token
 app.post('/api/auth/refresh', async (req, res) => {
     try {
