@@ -78,6 +78,15 @@ app.get('/', (req, res) => {
     res.send('AI Code Backend Running');
 });
 
+// Expose Supabase config to frontend (safe to expose URL and Anon Key)
+app.get('/api/config/supabase', (req, res) => {
+    const anonKey = process.env.SUPABASE_ANON_KEY;
+    if (!anonKey) {
+        return res.status(500).json({ error: 'SUPABASE_ANON_KEY not configured in backend' });
+    }
+    res.json({ anonKey });
+});
+
 // ========== AUTHENTICATION API ==========
 
 // POST signup - Create new user
@@ -298,6 +307,62 @@ app.post('/api/auth/refresh', async (req, res) => {
     }
 });
 
+
+// POST google/callback - Sync Google OAuth user profile after Supabase OAuth
+// Frontend calls this after getting the session from Supabase OAuth redirect
+app.post('/api/auth/google/callback', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        const token = authHeader?.replace('Bearer ', '');
+
+        if (!token) {
+            return res.status(401).json({ error: 'No token provided' });
+        }
+
+        // Verify the token with Supabase
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (error || !user) {
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+
+        // Extract user info from Google OAuth metadata
+        const username = user.user_metadata?.full_name
+            || user.user_metadata?.name
+            || user.email?.split('@')[0]
+            || 'user';
+
+        const avatarUrl = user.user_metadata?.avatar_url
+            || user.user_metadata?.picture
+            || null;
+
+        // Upsert profile — create if not exist, skip if already exists
+        const { error: profileError } = await supabase
+            .from('profiles')
+            .upsert({
+                id: user.id,
+                username,
+                avatar_url: avatarUrl,
+                updated_at: new Date().toISOString()
+            }, { onConflict: 'id', ignoreDuplicates: false });
+
+        if (profileError) {
+            console.warn('Profile upsert note:', profileError.message);
+        }
+
+        res.json({
+            user: {
+                id: user.id,
+                email: user.email,
+                username,
+                avatar_url: avatarUrl,
+                provider: user.app_metadata?.provider || 'google'
+            }
+        });
+    } catch (error) {
+        console.error('Google Callback Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
 
 // Get User API Key (check if exists, return masked preview)
 app.get('/api/keys/:userId', requireAuth, async (req, res) => {
