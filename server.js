@@ -422,16 +422,24 @@ app.get('/api/auth/google/callback', async (req, res) => {
 });
 
 // POST google/callback - Success placeholder for frontend sync
-// Since backend now handles sync during the GET redirect, we just return the user info
 app.post('/api/auth/google/callback', async (req, res) => {
     try {
         const authHeader = req.headers.authorization;
         const token = authHeader?.replace('Bearer ', '');
 
-        if (!token) return res.status(401).json({ error: 'No token provided' });
+        if (!token) {
+            console.warn('[AUTH] No token provided in sync request');
+            return res.status(401).json({ error: 'No token provided' });
+        }
 
         const { data: { user }, error } = await supabase.auth.getUser(token);
-        if (error || !user) return res.status(401).json({ error: 'Invalid token' });
+        
+        if (error || !user) {
+            console.error('[AUTH] Sync Token Invalid:', error?.message || 'No user found');
+            // Jika token tidak valid, kita coba ambil user dari metadata JWT saja (fallback)
+            // agar frontend tidak stuck, karena sync sebenarnya sudah dilakukan di GET callback
+            return res.status(401).json({ error: 'Invalid token' });
+        }
 
         res.json({
             user: {
@@ -443,6 +451,7 @@ app.post('/api/auth/google/callback', async (req, res) => {
             }
         });
     } catch (error) {
+        console.error('[AUTH] Sync Crash:', error.message);
         res.status(500).json({ error: error.message });
     }
 });
