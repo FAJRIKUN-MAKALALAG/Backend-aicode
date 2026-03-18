@@ -405,19 +405,22 @@ app.get('/api/auth/google/callback', async (req, res) => {
             }, { onConflict: 'id' });
 
         // 4. Redirect back to frontend with session tokens
-        // We use URL fragments (#) for security to match Supabase's default behavior
         const frontendUrl = process.env.FRONTEND_URL || 'https://unklab-aicode.online';
         const redirectUrl = new URL(`${frontendUrl}/auth/callback`);
         
-        // Add tokens as hash parameters
-        redirectUrl.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_at=${session.expires_at}&type=recovery`;
+        console.log('[AUTH] Login Success for:', user.email, 'ID:', user.id);
+        
+        // Add tokens as hash parameters (cleaner format)
+        // type=recovery is for password resets, omitting it for standard login
+        redirectUrl.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_at=${session.expires_at}&token_type=bearer`;
 
         res.redirect(redirectUrl.toString());
 
     } catch (error) {
         console.error('Google Callback Error:', error);
         const frontendUrl = process.env.FRONTEND_URL || 'https://unklab-aicode.online';
-        res.redirect(`${frontendUrl}/auth/error?message=${encodeURIComponent(error.message)}`);
+        const errorMsg = encodeURIComponent(error.message);
+        res.redirect(`${frontendUrl}/auth/error?message=${errorMsg}`);
     }
 });
 
