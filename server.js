@@ -38,7 +38,7 @@ const limiter = rateLimit({
     message: 'Too many requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { ip: false }, // Matikan warning IPv6 agar tidak crash
+    validate: false, // Matikan total semua validasi agar tidak crash di server
 });
 
 // Chat rate limiter — per USER ID (bukan per IP)
@@ -49,7 +49,7 @@ const chatLimiter = rateLimit({
     message: 'Too many chat requests, please slow down.',
     standardHeaders: true,
     legacyHeaders: false,
-    validate: { ip: false }, // Matikan warning IPv6 agar tidak crash
+    validate: false, // Matikan total semua validasi agar tidak crash di server
     keyGenerator: (req) => {
         // Prioritaskan userId, jika tidak ada baru gunakan IP
         return req.body?.userId || req.ip;
