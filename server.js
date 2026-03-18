@@ -410,9 +410,9 @@ app.get('/api/auth/google/callback', async (req, res) => {
         
         console.log('[AUTH] Login Success for:', user.email, 'ID:', user.id);
         
-        // Add tokens as hash parameters (cleaner format)
-        // type=recovery is for password resets, omitting it for standard login
-        redirectUrl.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_at=${session.expires_at}&token_type=bearer`;
+        // Add tokens as hash parameters exactly as Supabase JS expects
+        // Supabase strictly looks for `expires_in` (not expires_at) and a `type` to process the session automatically
+        redirectUrl.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_in=${session.expires_in || 3600}&token_type=bearer&type=magiclink`;
 
         res.redirect(redirectUrl.toString());
 
