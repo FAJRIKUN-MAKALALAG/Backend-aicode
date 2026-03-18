@@ -31,27 +31,24 @@ const corsOptions = {
 // Enable CORS for all routes
 app.use(cors(corsOptions));
 
-// Global rate limiter — longgar untuk auth, data fetch, dsb.
+/* 
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
     max: 500,                  
     message: 'Too many requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
-    validate: false, // Matikan total semua validasi agar tidak crash di server
+    validate: false, 
 });
 
-// Chat rate limiter — per USER ID (bukan per IP)
-// Sehingga user di jaringan yang sama tidak saling berbagi limit
 const chatLimiter = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 menit
-    max: 30,                  // 30 chat request per menit per user
+    windowMs: 1 * 60 * 1000, 
+    max: 30,                  
     message: 'Too many chat requests, please slow down.',
     standardHeaders: true,
     legacyHeaders: false,
-    validate: false, // Matikan total semua validasi agar tidak crash di server
+    validate: false, 
     keyGenerator: (req) => {
-        // Prioritaskan userId, jika tidak ada baru gunakan IP
         return req.body?.userId || req.ip;
     },
     skip: (req) => {
@@ -59,8 +56,8 @@ const chatLimiter = rateLimit({
     }
 });
 
-// Apply global rate limiter ke semua endpoint
 app.use(limiter);
+*/
 
 app.use(express.json());
 
@@ -803,7 +800,7 @@ app.delete('/api/code/:id', async (req, res) => {
     }
 });
 
-app.post('/api/chat', chatLimiter, async (req, res) => {
+app.post('/api/chat', async (req, res) => {
     // Logging for PM2 monitoring
     console.log("--- REQUEST MASUK ---");
     console.log("User ID:", req.body.userId);
@@ -952,7 +949,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
 });
 
 // ========== GROQ FALLBACK CHAT API ==========
-app.post('/api/chat/groq-fallback', chatLimiter, requireAuth, async (req, res) => {
+app.post('/api/chat/groq-fallback', requireAuth, async (req, res) => {
     const { messages } = req.body;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'messages array is required' });
