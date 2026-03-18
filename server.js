@@ -64,6 +64,12 @@ app.use(limiter);
 
 app.use(express.json());
 
+// GLOBAL REQUEST LOGGER (Untuk melacak semua request yang masuk)
+app.use((req, res, next) => {
+    console.log(`[REQ] ${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+});
+
 
 // Initialize Supabase (if env vars match)
 const supabaseUrl = process.env.SUPABASE_URL;
@@ -985,11 +991,20 @@ app.post('/api/chat/groq-fallback', requireAuth, async (req, res) => {
             stop: null
         });
 
+        let fullText = "";
         for await (const chunk of stream) {
             const text = chunk.choices[0]?.delta?.content || '';
-            if (text) res.write('data: ' + JSON.stringify({ text }) + '\n\n');
+            if (text) {
+                fullText += text;
+                res.write('data: ' + JSON.stringify({ text }) + '\n\n');
+            }
         }
         res.write('data: [DONE]\n\n');
+        
+        // Log Token Usage untuk Groq
+        const estTokens = Math.ceil(fullText.length / 4);
+        console.log(`[TOKEN USAGE - GROQ] Response Chars: ${fullText.length} (~${estTokens} tokens)`);
+        
         res.end();
 
     } catch (error) {
