@@ -1,4 +1,7 @@
 const express = require('express');
+console.log("=========================================");
+console.log(">>> BACKEND VERSI: SEREVER-5 (NO-LIMIT) <<<");
+console.log("=========================================");
 const cors = require('cors');
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
