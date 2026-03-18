@@ -421,9 +421,30 @@ app.get('/api/auth/google/callback', async (req, res) => {
     }
 });
 
-// Legacy POST google/callback (keep it for a while but mark as legacy)
-app.post('/api/auth/google/callback/sync', async (req, res) => {
-    // ... existing logic if needed, but we'll comment it out or leave it for now
+// POST google/callback - Success placeholder for frontend sync
+// Since backend now handles sync during the GET redirect, we just return the user info
+app.post('/api/auth/google/callback', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        const token = authHeader?.replace('Bearer ', '');
+
+        if (!token) return res.status(401).json({ error: 'No token provided' });
+
+        const { data: { user }, error } = await supabase.auth.getUser(token);
+        if (error || !user) return res.status(401).json({ error: 'Invalid token' });
+
+        res.json({
+            user: {
+                id: user.id,
+                email: user.email,
+                username: user.user_metadata?.username || user.user_metadata?.full_name || 'user',
+                avatar_url: user.user_metadata?.avatar_url || user.user_metadata?.picture,
+                provider: 'google'
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
 });
 
 // Get User API Key (check if exists, return masked preview)
