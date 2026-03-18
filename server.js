@@ -40,13 +40,25 @@ const limiter = rateLimit({
     legacyHeaders: false,
 });
 
-// Chat rate limiter — lebih ketat untuk mencegah abuse AI
+// Chat rate limiter — per USER ID (bukan per IP)
+// Sehingga user di jaringan yang sama tidak saling berbagi limit
 const chatLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 menit
-    max: 20,                  // 20 chat request per menit per IP
+    max: 30,                  // 30 chat request per menit per user
     message: 'Too many chat requests, please slow down.',
     standardHeaders: true,
     legacyHeaders: false,
+    keyGenerator: (req) => {
+        // Gunakan userId dari body sebagai key, fallback ke IP
+        return req.body?.userId || req.ip;
+    },
+    skip: (req) => {
+        // Jika user memakai API key sendiri (bukan default), beri limit lebih longgar
+        // skip = true berarti tidak dikenakan limit sama sekali
+        // Uncomment baris di bawah jika ingin user dengan API key sendiri bebas limit:
+        // return !!req.body?.apiKey;
+        return false;
+    }
 });
 
 // Apply global rate limiter ke semua endpoint
