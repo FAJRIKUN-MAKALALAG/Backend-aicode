@@ -1,7 +1,4 @@
 const express = require('express');
-console.log("=========================================");
-console.log(">>> BACKEND VERSI: SEREVER-5 (NO-LIMIT) <<<");
-console.log("=========================================");
 const cors = require('cors');
 require('dotenv').config();
 const { createClient } = require('@supabase/supabase-js');
@@ -34,7 +31,7 @@ const corsOptions = {
 // Enable CORS for all routes
 app.use(cors(corsOptions));
 
-/* 
+// Global rate limiter — longgar untuk auth, data fetch, dsb.
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
     max: 500,                  
@@ -44,6 +41,7 @@ const limiter = rateLimit({
     validate: false, 
 });
 
+// Chat rate limiter — per USER ID (bukan per IP)
 const chatLimiter = rateLimit({
     windowMs: 1 * 60 * 1000, 
     max: 30,                  
@@ -60,7 +58,6 @@ const chatLimiter = rateLimit({
 });
 
 app.use(limiter);
-*/
 
 app.use(express.json());
 
@@ -809,7 +806,7 @@ app.delete('/api/code/:id', async (req, res) => {
     }
 });
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatLimiter, async (req, res) => {
     // Logging for PM2 monitoring
     console.log("--- REQUEST MASUK ---");
     console.log("User ID:", req.body.userId);
@@ -958,7 +955,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // ========== GROQ FALLBACK CHAT API ==========
-app.post('/api/chat/groq-fallback', requireAuth, async (req, res) => {
+app.post('/api/chat/groq-fallback', chatLimiter, requireAuth, async (req, res) => {
     const { messages } = req.body;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'messages array is required' });
