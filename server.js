@@ -7,6 +7,7 @@ const { systemPrompt } = require('./prompts');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const Groq = require('groq-sdk');
 
+const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
@@ -332,24 +333,59 @@ app.post('/api/auth/refresh', async (req, res) => {
 });
 
 
-// POST google/callback - Sync Google OAuth user profile after Supabase OAuth
-// Frontend calls this after getting the session from Supabase OAuth redirect
-app.post('/api/auth/google/callback', async (req, res) => {
+// ========== NEW GOOGLE OAUTH FLOW (BACKEND MANAGED) ==========
+
+// GET google/login - Redirect user to Google OAuth consent screen
+app.get('/api/auth/google/login', (req, res) => {
+    const googleAuthUrl = 'https://accounts.google.com/o/oauth2/v2/auth';
+    const params = new URLSearchParams({
+        client_id: process.env.GOOGLE_CLIENT_ID,
+        redirect_uri: `${process.env.BACKEND_URL}/api/auth/google/callback`,
+        response_type: 'code',
+        scope: 'openid email profile',
+        access_type: 'offline',
+        prompt: 'select_account'
+    });
+
+    res.redirect(`${googleAuthUrl}?${params.toString()}`);
+});
+
+// GET google/callback - Exchange code for tokens and sync with Supabase
+app.get('/api/auth/google/callback', async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        const token = authHeader?.replace('Bearer ', '');
+        const { code } = req.query;
 
-        if (!token) {
-            return res.status(401).json({ error: 'No token provided' });
+        if (!code) {
+            return res.status(400).json({ error: 'Authorization code missing' });
         }
 
-        // Verify the token with Supabase
-        const { data: { user }, error } = await supabase.auth.getUser(token);
-        if (error || !user) {
-            return res.status(401).json({ error: 'Invalid or expired token' });
+        // 1. Exchange authorization code for tokens
+        const tokenResponse = await axios.post('https://oauth2.googleapis.com/token', {
+            code,
+            client_id: process.env.GOOGLE_CLIENT_ID,
+            client_secret: process.env.GOOGLE_CLIENT_SECRET,
+            redirect_uri: `${process.env.BACKEND_URL}/api/auth/google/callback`,
+            grant_type: 'authorization_code'
+        });
+
+        const { id_token, access_token: google_access_token } = tokenResponse.data;
+
+        if (!id_token) {
+            throw new Error('Failed to get ID token from Google');
         }
 
-        // Extract user info from Google OAuth metadata
+        // 2. Sign in to Supabase using the Google ID token
+        // This will automatically create the user if they don't exist
+        const { data: authData, error: authError } = await supabase.auth.signInWithIdToken({
+            provider: 'google',
+            token: id_token
+        });
+
+        if (authError) throw authError;
+
+        const { user, session } = authData;
+
+        // 3. Sync profile metadata
         const username = user.user_metadata?.full_name
             || user.user_metadata?.name
             || user.email?.split('@')[0]
@@ -359,33 +395,35 @@ app.post('/api/auth/google/callback', async (req, res) => {
             || user.user_metadata?.picture
             || null;
 
-        // Upsert profile — create if not exist, skip if already exists
-        const { error: profileError } = await supabase
+        await supabase
             .from('profiles')
             .upsert({
                 id: user.id,
                 username,
                 avatar_url: avatarUrl,
                 updated_at: new Date().toISOString()
-            }, { onConflict: 'id', ignoreDuplicates: false });
+            }, { onConflict: 'id' });
 
-        if (profileError) {
-            console.warn('Profile upsert note:', profileError.message);
-        }
+        // 4. Redirect back to frontend with session tokens
+        // We use URL fragments (#) for security to match Supabase's default behavior
+        const frontendUrl = process.env.FRONTEND_URL || 'https://unklab-aicode.online';
+        const redirectUrl = new URL(`${frontendUrl}/auth/callback`);
+        
+        // Add tokens as hash parameters
+        redirectUrl.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_at=${session.expires_at}&type=recovery`;
 
-        res.json({
-            user: {
-                id: user.id,
-                email: user.email,
-                username,
-                avatar_url: avatarUrl,
-                provider: user.app_metadata?.provider || 'google'
-            }
-        });
+        res.redirect(redirectUrl.toString());
+
     } catch (error) {
         console.error('Google Callback Error:', error);
-        res.status(500).json({ error: error.message });
+        const frontendUrl = process.env.FRONTEND_URL || 'https://unklab-aicode.online';
+        res.redirect(`${frontendUrl}/auth/error?message=${encodeURIComponent(error.message)}`);
     }
+});
+
+// Legacy POST google/callback (keep it for a while but mark as legacy)
+app.post('/api/auth/google/callback/sync', async (req, res) => {
+    // ... existing logic if needed, but we'll comment it out or leave it for now
 });
 
 // Get User API Key (check if exists, return masked preview)

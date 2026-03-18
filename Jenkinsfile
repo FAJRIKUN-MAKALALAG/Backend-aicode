@@ -16,6 +16,8 @@ pipeline {
         PM2_NAME     = "aicode-backend"
         BACKEND_PORT = "3000"
         PATH = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
+        BACKEND_URL = "https://api.unklab-aicode.online"
+        FRONTEND_URL = "https://unklab-aicode.online"
     }
 
     stages {
@@ -33,6 +35,9 @@ pipeline {
                     string(credentialsId: 'ENCRYPTION_KEY', variable: 'ENC_KEY'),
                     string(credentialsId: 'GROQ_API_KEY', variable: 'GROQ_KEY'),
                     string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'SUPA_ANON_KEY'),
+                    string(credentialsId: 'GOOGLE_CLIENT_ID', variable: 'GOOGLE_CLIENT_ID'),
+                    string(credentialsId: 'GOOGLE_CLIENT_SECRET', variable: 'GOOGLE_CLIENT_SECRET'),
+
                 ]) {
                     sh """
                         echo "PORT=${BACKEND_PORT}" > .env
@@ -41,6 +46,10 @@ pipeline {
                         echo "ENCRYPTION_KEY=${ENC_KEY}" >> .env
                         echo "GROQ_API_KEY=${GROQ_KEY}" >> .env
                         echo "SUPABASE_ANON_KEY=${SUPA_ANON_KEY}" >> .env
+                        echo "GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" >> .env
+                        echo "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}" >> .env
+                        echo "BACKEND_URL=${BACKEND_URL}" >> .env
+                        echo "FRONTEND_URL=${FRONTEND_URL}" >> .env
                         echo "✅ File .env berhasil dibuat"
                     """
                 }
