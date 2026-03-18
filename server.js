@@ -884,7 +884,23 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
             systemInstruction: finalSystemInstruction
         });
 
-        // 9. Stream Generation with SDK
+        // 9. Count Input Tokens (Optional logging)
+        try {
+            const countResult = await model.countTokens({
+                contents: [
+                    ...historicalContext,
+                    ...currentMessages.map(m => ({
+                        role: m.role === 'assistant' ? 'model' : 'user',
+                        parts: [{ text: m.content }]
+                    }))
+                ]
+            });
+            console.log(`[TOKEN USAGE] Input Tokens: ${countResult.totalTokens}`);
+        } catch (tokenErr) {
+            console.warn('Failed to count input tokens:', tokenErr.message);
+        }
+
+        // 10. Stream Generation with SDK
         console.log("[DEBUG] Starting generateContentStream...");
         const result = await model.generateContentStream({
             contents: [
@@ -896,7 +912,7 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
             ]
         });
 
-        // 10. SSE Consumption & Async Assistant Save
+        // 11. SSE Consumption & Async Assistant Save
         let fullAssistantText = "";
         try {
             console.log("[DEBUG] Consuming SDK stream chunks...");
@@ -904,7 +920,6 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
                 const textChunk = chunk.text();
                 if (textChunk) {
                     fullAssistantText += textChunk;
-                    // Maintain standard SSE JSON format
                     res.write(`data: ${JSON.stringify({ text: textChunk })}\n\n`);
                 }
             }
@@ -915,9 +930,11 @@ app.post('/api/chat', chatLimiter, async (req, res) => {
             res.write(`data: ${JSON.stringify({ error: 'Streaming failed', details: streamErr.message })}\n\n`);
         } finally {
             console.log("--- RESPONSE KELUAR ---");
-            console.log("AI Response Length:", fullAssistantText.length);
-            console.log("Assistant Text Preview:", fullAssistantText.substring(0, 50) + "...");
-
+            
+            // Hitung estimasi token output (kasar: 4 karakter ~ 1 token)
+            const estimatedOutputTokens = Math.ceil(fullAssistantText.length / 4);
+            console.log(`[TOKEN USAGE] AI Response Length: ${fullAssistantText.length} chars (~${estimatedOutputTokens} tokens)`);
+            
             res.end();
             // 11. Background Save AI Response
             if (conversationId && fullAssistantText) {
