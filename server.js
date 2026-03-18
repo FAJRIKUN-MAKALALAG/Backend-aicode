@@ -31,14 +31,25 @@ const corsOptions = {
 // Enable CORS for all routes
 app.use(cors(corsOptions));
 
-// Rate limiting: 100 requests per 15 minutes
+// Global rate limiter — longgar untuk auth, data fetch, dsb.
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // limit each IP to 100 requests per windowMs
-    message: 'Too many requests from this IP, please try again later.'
+    windowMs: 15 * 60 * 1000, // 15 menit
+    max: 500,                  // 500 request per 15 menit per IP
+    message: 'Too many requests, please try again later.',
+    standardHeaders: true,
+    legacyHeaders: false,
 });
 
-// Apply rate limiting after CORS
+// Chat rate limiter — lebih ketat untuk mencegah abuse AI
+const chatLimiter = rateLimit({
+    windowMs: 1 * 60 * 1000, // 1 menit
+    max: 20,                  // 20 chat request per menit per IP
+    message: 'Too many chat requests, please slow down.',
+    standardHeaders: true,
+    legacyHeaders: false,
+});
+
+// Apply global rate limiter ke semua endpoint
 app.use(limiter);
 
 app.use(express.json());
@@ -782,7 +793,7 @@ app.delete('/api/code/:id', async (req, res) => {
     }
 });
 
-app.post('/api/chat', async (req, res) => {
+app.post('/api/chat', chatLimiter, async (req, res) => {
     // Logging for PM2 monitoring
     console.log("--- REQUEST MASUK ---");
     console.log("User ID:", req.body.userId);
@@ -914,7 +925,7 @@ app.post('/api/chat', async (req, res) => {
 });
 
 // ========== GROQ FALLBACK CHAT API ==========
-app.post('/api/chat/groq-fallback', requireAuth, async (req, res) => {
+app.post('/api/chat/groq-fallback', chatLimiter, requireAuth, async (req, res) => {
     const { messages } = req.body;
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
         return res.status(400).json({ error: 'messages array is required' });
