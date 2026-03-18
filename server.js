@@ -33,11 +33,12 @@ app.use(cors(corsOptions));
 
 // Global rate limiter — longgar untuk auth, data fetch, dsb.
 const limiter = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 menit
-    max: 500,                  // 500 request per 15 menit per IP
+    windowMs: 15 * 60 * 1000, 
+    max: 500,                  
     message: 'Too many requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { ip: false }, // Matikan warning IPv6 agar tidak crash
 });
 
 // Chat rate limiter — per USER ID (bukan per IP)
@@ -48,15 +49,12 @@ const chatLimiter = rateLimit({
     message: 'Too many chat requests, please slow down.',
     standardHeaders: true,
     legacyHeaders: false,
+    validate: { ip: false }, // Matikan warning IPv6 agar tidak crash
     keyGenerator: (req) => {
-        // Gunakan userId dari body sebagai key, fallback ke IP
+        // Prioritaskan userId, jika tidak ada baru gunakan IP
         return req.body?.userId || req.ip;
     },
     skip: (req) => {
-        // Jika user memakai API key sendiri (bukan default), beri limit lebih longgar
-        // skip = true berarti tidak dikenakan limit sama sekali
-        // Uncomment baris di bawah jika ingin user dengan API key sendiri bebas limit:
-        // return !!req.body?.apiKey;
         return false;
     }
 });
