@@ -70,6 +70,14 @@ pipeline {
                       --exclude 'node_modules' \
                       --exclude 'Jenkinsfile' \
                       ./ ${BACKEND_DIR}/
+                      
+                    # 3. Verifikasi file .env ada di tujuan
+                    if [ -f "${BACKEND_DIR}/.env" ]; then
+                        echo "✅ Verifikasi: File .env ditemukan di ${BACKEND_DIR}"
+                    else
+                        echo "❌ ERROR: File .env TIDAK ditemukan di ${BACKEND_DIR}"
+                        exit 1
+                    fi
                 """
             }
         }
@@ -106,7 +114,7 @@ pipeline {
             echo "✅ DEPLOY BERHASIL!"
         }
         failure {
-            echo "❌ DEPLOY GAGAL! Periksa izin folder di VPS."
+            echo "❌ DEPLOY GAGAL! Periksa izin folder di VPS atau Credentials di Jenkins."
         }
     }
 }
