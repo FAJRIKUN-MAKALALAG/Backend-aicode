@@ -93,16 +93,40 @@ if (supabaseUrl && supabaseKey && supabaseUrl.startsWith('http')) {
 
 // ========== AUTH MIDDLEWARE ==========
 async function requireAuth(req, res, next) {
-    // Ambil token dari Cookie browser, fallback ke Headers jika tidak ada
-    const token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
+    let token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
+    const refreshToken = req.cookies.refresh_token;
     
-    if (!token) {
+    if (!token && !refreshToken) {
         return res.status(401).json({ error: "Sesi habis/Belum login" });
     }
     
     try {
-        const { data: { user }, error } = await supabase.auth.getUser(token);
-        if (error || !user) return res.status(401).json({ error: 'Invalid or expired token' });
+        let { data: { user }, error } = await supabase.auth.getUser(token);
+        
+        // Jika token tidak valid/expired, otomatis coba lakukan refresh
+        if (error || !user) {
+            if (refreshToken) {
+                const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+                if (refreshError || !data.session) {
+                    res.clearCookie('access_token');
+                    res.clearCookie('refresh_token');
+                    return res.status(401).json({ error: 'Sesi habis, silakan login kembali' });
+                }
+                
+                // Set cookie baru
+                res.cookie('access_token', data.session.access_token, {
+                    httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 3600000
+                });
+                res.cookie('refresh_token', data.session.refresh_token, {
+                    httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 7 * 24 * 3600000
+                });
+                user = data.user;
+            } else {
+                return res.status(401).json({ error: 'Invalid or expired token' });
+            }
+        }
+        
+        // Attach user ke req
         req.user = user;
         next();
     } catch (e) {
@@ -124,33 +148,60 @@ app.get('/api/config/supabase', (req, res) => {
     res.json({ anonKey });
 });
 
-// ========== AUTHENTICATION API ==========
-
-// POST set-session - Ubah token jadi HTTP-Only Cookie
-app.post('/api/auth/set-session', (req, res) => {
-    const { access_token, user } = req.body;
-    // Set cookie "access_token" untuk 1 jam (3600000 millisecond)
-    res.cookie('access_token', access_token, {
-        httpOnly: true,  // SUPER PENTING: Cookie tidak bisa dicuri hacker lewat XSS Javascript
-        secure: process.env.NODE_ENV === 'production', // Wajib HTTPS kalau di production
-        sameSite: 'lax', // Gunakan 'none' jika frontend & backend beda domain, butuh secure:true
-        maxAge: 3600000  // Expired dalam 1 Jam
-    });
-    // Set cookie user_data supaya Frontend (React) tahu siapa yang login
-    // Ini BUKAN httpOnly, agar React bisa membaca nama/email user di pojok kanan atas
-    if (user) {
-        res.cookie('user_data', JSON.stringify(user), {
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            maxAge: 3600000
-        });
-    }
-    res.json({ message: "Session berhasil dibuat" });
+// GET /api/me - Retrieve current user explicitly
+app.get('/api/me', requireAuth, (req, res) => {
+    res.json({ user: req.user });
 });
 
+// ========== AUTHENTICATION API ==========
+
+// POST set-session - Ubah token jadi HTTP-Only Cookie secara aman
+app.post('/api/auth/set-session', async (req, res) => {
+    try {
+        const { access_token, refresh_token } = req.body;
+        
+        if (!access_token) {
+            return res.status(400).json({ error: "Access token required" });
+        }
+
+        // Validate token to Supabase instead of trusting frontend user data
+        const { data: { user }, error } = await supabase.auth.getUser(access_token);
+        
+        if (error || !user) {
+            return res.status(401).json({ error: "Invalid token" });
+        }
+
+        // Set access_token cookie
+        res.cookie('access_token', access_token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 3600000 // 1 Jam
+        });
+
+        // Set refresh_token cookie jika tersedia
+        if (refresh_token) {
+            res.cookie('refresh_token', refresh_token, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'lax',
+                path: '/',
+                maxAge: 7 * 24 * 3600000 // 7 Hari
+            });
+        }
+
+        res.json({ message: "Session berhasil dibuat", user });
+    } catch (err) {
+        res.status(500).json({ error: "Internal server error" });
+    }
+});
+
+// POST clear-session - Hapus cookie secara total
 app.post('/api/auth/clear-session', (req, res) => {
-    res.clearCookie('access_token');
-    res.clearCookie('user_data');
+    res.clearCookie('access_token', { path: '/' });
+    res.clearCookie('refresh_token', { path: '/' });
+    res.clearCookie('user_data', { path: '/' }); // Bersihkan cookie lama yang insecure juga
     res.json({ message: "Session berhasil dihapus" });
 });
 
@@ -238,25 +289,28 @@ app.post('/api/auth/login', async (req, res) => {
     }
 });
 
-// POST logout - Sign out user
+// POST logout - Sign out user + hapus semua cookies sesi
 app.post('/api/auth/logout', async (req, res) => {
     try {
         // Ambil token dari Cookie browser, fallback ke Headers jika tidak ada
         const token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
 
-        if (!token) {
-            return res.status(401).json({ error: 'No token provided' });
+        // Selalu hapus cookies browser terlebih dahulu
+        res.clearCookie('access_token', { path: '/' });
+        res.clearCookie('refresh_token', { path: '/' });
+        res.clearCookie('user_data', { path: '/' }); // legacy cleanup
+
+        if (token) {
+            // Cabut token di sisi Supabase (best effort)
+            await supabase.auth.admin.signOut(token).catch(e => {
+                console.warn('Supabase signOut warning:', e.message);
+            });
         }
-
-        // Set the auth token for this request
-        const { error } = await supabase.auth.admin.signOut(token);
-
-        if (error) throw error;
 
         res.json({ success: true, message: 'Logged out successfully' });
     } catch (error) {
         console.error('Logout Error:', error);
-        // Even if logout fails, return success (token will expire anyway)
+        // Even if logout fails on Supabase, cookies already cleared
         res.json({ success: true });
     }
 });
@@ -344,13 +398,13 @@ app.post('/api/auth/reset-password', async (req, res) => {
     }
 });
 
-// POST refresh - Refresh access token
+// POST refresh - Refresh access token via Cookie
 app.post('/api/auth/refresh', async (req, res) => {
     try {
-        const { refresh_token } = req.body;
+        const refresh_token = req.cookies.refresh_token;
 
         if (!refresh_token) {
-            return res.status(400).json({ error: 'Refresh token required' });
+            return res.status(401).json({ error: 'Refresh token required' });
         }
 
         const { data, error } = await supabase.auth.refreshSession({
@@ -359,15 +413,28 @@ app.post('/api/auth/refresh', async (req, res) => {
 
         if (error) throw error;
 
-        res.json({
-            session: {
-                access_token: data.session.access_token,
-                refresh_token: data.session.refresh_token,
-                expires_at: data.session.expires_at
-            }
+        // Update tokens
+        res.cookie('access_token', data.session.access_token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 3600000
         });
+        
+        res.cookie('refresh_token', data.session.refresh_token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            path: '/',
+            maxAge: 7 * 24 * 3600000
+        });
+
+        res.json({ success: true, message: 'Session refreshed successfully' });
     } catch (error) {
         console.error('Refresh Error:', error);
+        res.clearCookie('access_token', { path: '/' });
+        res.clearCookie('refresh_token', { path: '/' });
         res.status(401).json({ error: 'Invalid refresh token' });
     }
 });
