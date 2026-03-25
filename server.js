@@ -38,10 +38,7 @@ const corsOptions = {
 // Enable CORS for all routes
 app.use(cors(corsOptions));
 
-// Handle pre-flight OPTIONS request explicitly (Express 5 compatible wildcard)
-app.options('(.*)', cors(corsOptions));
-
-// Standard middleware
+// Standard middleware (cors is already handled above)
 app.use(express.json());
 app.use(cookieParser());
 
