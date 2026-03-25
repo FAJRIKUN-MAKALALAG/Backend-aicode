@@ -41,8 +41,8 @@ pipeline {
 
                 ]) {
                     sh """
-                        echo "PORT=${BACKEND_PORT}" > .env
-                        echo "NODE_ENV=${NODE_ENV}" >> .env
+                        echo "PORT=${env.BACKEND_PORT}" > .env
+                        echo "NODE_ENV=${env.NODE_ENV}" >> .env
                         echo "SUPABASE_URL=${SUPA_URL}" >> .env
                         echo "SUPABASE_KEY=${SUPA_KEY}" >> .env
                         echo "ENCRYPTION_KEY=${ENC_KEY}" >> .env
@@ -50,9 +50,9 @@ pipeline {
                         echo "SUPABASE_ANON_KEY=${SUPA_ANON_KEY}" >> .env
                         echo "GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" >> .env
                         echo "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}" >> .env
-                        echo "BACKEND_URL=${BACKEND_URL}" >> .env
-                        echo "FRONTEND_URL=${FRONTEND_URL}" >> .env
-                        echo "✅ File .env berhasil dibuat"
+                        echo "BACKEND_URL=${env.BACKEND_URL}" >> .env
+                        echo "FRONTEND_URL=${env.FRONTEND_URL}" >> .env
+                        echo "✅ File .env berhasil dibuat. Ukuran: \$(wc -c < .env) bytes"
                     """
                 }
             }
