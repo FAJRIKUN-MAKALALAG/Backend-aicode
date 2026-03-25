@@ -20,18 +20,35 @@ app.set('trust proxy', 1);
 // Explicit CORS configuration — MUST be before rate limiter or any route
 const corsOptions = {
     origin: [
-        'https://unklab-aicode.online',
-        'http://localhost:5173',
-        'http://localhost:3000',
+        'https://aicode.unklab.online',    // Frontend production
+        'https://unklab-aicode.online',     // Frontend alt domain
+        'http://localhost:5173',            // Dev frontend
+        'http://localhost:3000',            // Dev alt
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,
-    optionsSuccessStatus: 200, // Some browsers (IE11) choke on 204
+    credentials: true,  // WAJIB agar browser mau kirim cookie cross-origin
+    optionsSuccessStatus: 200,
 };
 
 // Enable CORS for all routes
 app.use(cors(corsOptions));
+
+// ========== COOKIE HELPER ==========
+// Di production (cross-origin): SameSite=None + Secure=true (WAJIB untuk beda domain)
+// Di development (localhost):   SameSite=Lax  + Secure=false
+const IS_PROD = process.env.NODE_ENV === 'production';
+function cookieOpts(maxAge) {
+    return {
+        httpOnly: true,
+        secure: IS_PROD,                   // true di production (HTTPS)
+        sameSite: IS_PROD ? 'none' : 'lax', // 'none' wajib untuk cross-origin cookie
+        path: '/',
+        maxAge,
+    };
+}
+const ACCESS_TOKEN_TTL  = 60 * 60 * 1000;       // 1 jam
+const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60 * 1000; // 7 hari
 
 // Global rate limiter — longgar untuk auth, data fetch, dsb.
 const limiter = rateLimit({
@@ -125,12 +142,8 @@ async function requireAuth(req, res, next) {
             }
             
             // Refresh berhasil — set cookie baru
-            res.cookie('access_token', data.session.access_token, {
-                httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 3600000
-            });
-            res.cookie('refresh_token', data.session.refresh_token, {
-                httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 7 * 24 * 3600000
-            });
+            res.cookie('access_token', data.session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
+            res.cookie('refresh_token', data.session.refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
             user = data.user;
         }
 
@@ -184,24 +197,12 @@ app.post('/api/auth/set-session', async (req, res) => {
             return res.status(401).json({ error: "Invalid token" });
         }
 
-        // Set access_token cookie
-        res.cookie('access_token', access_token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 3600000 // 1 Jam
-        });
+        // Set access_token cookie (httpOnly — tidak bisa dibaca JS frontend)
+        res.cookie('access_token', access_token, cookieOpts(ACCESS_TOKEN_TTL));
 
         // Set refresh_token cookie jika tersedia
         if (refresh_token) {
-            res.cookie('refresh_token', refresh_token, {
-                httpOnly: true,
-                secure: process.env.NODE_ENV === 'production',
-                sameSite: 'lax',
-                path: '/',
-                maxAge: 7 * 24 * 3600000 // 7 Hari
-            });
+            res.cookie('refresh_token', refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
         }
 
         res.json({ message: "Session berhasil dibuat", user });
@@ -426,22 +427,9 @@ app.post('/api/auth/refresh', async (req, res) => {
 
         if (error) throw error;
 
-        // Update tokens
-        res.cookie('access_token', data.session.access_token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 3600000
-        });
-        
-        res.cookie('refresh_token', data.session.refresh_token, {
-            httpOnly: true,
-            secure: process.env.NODE_ENV === 'production',
-            sameSite: 'lax',
-            path: '/',
-            maxAge: 7 * 24 * 3600000
-        });
+        // Update tokens via cookie
+        res.cookie('access_token', data.session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
+        res.cookie('refresh_token', data.session.refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
 
         res.json({ success: true, message: 'Session refreshed successfully' });
     } catch (error) {

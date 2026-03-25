@@ -15,9 +15,10 @@ pipeline {
         BACKEND_DIR  = "/var/www/unklab-backend"
         PM2_NAME     = "aicode-backend"
         BACKEND_PORT = "3000"
+        NODE_ENV     = "production"   // WAJIB: aktifkan SameSite=None + secure cookie
         PATH = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
         BACKEND_URL = "https://api.unklab-aicode.online"
-        FRONTEND_URL = "https://unklab-aicode.online"
+        FRONTEND_URL = "https://aicode.unklab.online"
     }
 
     stages {
@@ -41,6 +42,7 @@ pipeline {
                 ]) {
                     sh """
                         echo "PORT=${BACKEND_PORT}" > .env
+                        echo "NODE_ENV=${NODE_ENV}" >> .env
                         echo "SUPABASE_URL=${SUPA_URL}" >> .env
                         echo "SUPABASE_KEY=${SUPA_KEY}" >> .env
                         echo "ENCRYPTION_KEY=${ENC_KEY}" >> .env
