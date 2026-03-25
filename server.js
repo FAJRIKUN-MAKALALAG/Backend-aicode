@@ -35,11 +35,16 @@ app.use(cors(corsOptions));
 // Global rate limiter — longgar untuk auth, data fetch, dsb.
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 500,                  
+    max: 2000,                  // Increased from 500 to 2000 to accommodate labs
     message: 'Too many requests, please try again later.',
     standardHeaders: true,
     legacyHeaders: false,
     validate: false, 
+    keyGenerator: (req) => {
+        // Prioritize userId to avoid blocking entire labs/WiFi networks
+        // userId might be in body, params, or extracted from token in future middleware
+        return req.body?.userId || req.params?.userId || req.ip;
+    }
 });
 
 // Chat rate limiter — per USER ID (bukan per IP)
