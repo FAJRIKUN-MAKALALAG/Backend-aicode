@@ -4,9 +4,18 @@ const supabase = require('../config/supabase');
 const axios = require('axios');
 const { requireAuth, cookieOpts, clearCookieOpts, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL } = require('../middleware/auth');
 
-// GET /api/me - Retrieve current user explicitly
+// GET /api/auth/me - Retrieve current user (flat object for frontend compatibility)
 router.get('/me', requireAuth, (req, res) => {
-    res.json({ user: req.user });
+    const u = req.user;
+    res.json({
+        id:       u.id,
+        email:    u.email,
+        username: u.user_metadata?.username
+                  || u.user_metadata?.full_name
+                  || u.user_metadata?.name
+                  || u.email?.split('@')[0]
+                  || 'User'
+    });
 });
 
 // POST /api/auth/set-session - Ubah token jadi HTTP-Only Cookie secara aman
