@@ -1,0 +1,107 @@
+const express = require('express');
+const router = express.Router();
+const supabase = require('../config/supabase');
+const { requireAuth } = require('../middleware/auth');
+const { encrypt, decrypt } = require('../utils/crypto');
+
+// GET /api/keys/:userId - Get User API Key preview
+router.get('/:userId', requireAuth, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        if (req.user.id !== userId) {
+            return res.status(403).json({ error: 'Forbidden: access denied' });
+        }
+
+        const { data, error } = await supabase
+            .from('user_secrets')
+            .select('key_name, encrypted_value, iv, created_at')
+            .eq('user_id', userId)
+            .eq('key_name', 'GEMINI_API_KEY')
+            .single();
+
+        if (error && error.code !== 'PGRST116') {
+            throw error;
+        }
+
+        let prefix = null;
+        let suffix = null;
+        if (data) {
+            try {
+                const decrypted = decrypt(data.encrypted_value, data.iv);
+                prefix = decrypted.substring(0, 4);
+                suffix = decrypted.slice(-4);
+            } catch (e) {
+                console.warn('Could not decrypt key for preview:', e.message);
+            }
+        }
+
+        res.json({
+            hasKey: !!data,
+            keyName: data?.key_name,
+            createdAt: data?.created_at,
+            prefix,
+            suffix
+        });
+    } catch (error) {
+        console.error('Get Key Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/keys/:userId/value - Get decrypted API key value
+router.get('/:userId/value', requireAuth, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        if (req.user.id !== userId) return res.status(403).json({ error: 'Forbidden' });
+
+        const { data, error } = await supabase
+            .from('user_secrets')
+            .select('encrypted_value, iv')
+            .eq('user_id', userId)
+            .eq('key_name', 'GEMINI_API_KEY')
+            .single();
+
+        if (error && error.code !== 'PGRST116') throw error;
+        if (!data) return res.status(404).json({ error: 'No API key found. Please add one in Settings.' });
+
+        const decrypted = decrypt(data.encrypted_value, data.iv);
+        res.json({ apiKey: decrypted });
+    } catch (error) {
+        console.error('Decrypt Key Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/keys - Save User API Key
+router.post('/', requireAuth, async (req, res) => {
+    try {
+        const { apiKey } = req.body;
+        const userId = req.user.id;
+
+        if (!apiKey) {
+            return res.status(400).json({ error: 'Missing apiKey' });
+        }
+
+        const { encrypted_value, iv } = encrypt(apiKey);
+
+        const { error } = await supabase
+            .from('user_secrets')
+            .upsert({
+                user_id: userId,
+                key_name: 'GEMINI_API_KEY',
+                encrypted_value,
+                iv
+            }, { onConflict: 'user_id, key_name' });
+
+        if (error) throw error;
+
+        res.json({ success: true, message: 'API Key saved successfully' });
+    } catch (error) {
+        console.error('Save Key Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+module.exports = router;
