@@ -3,6 +3,7 @@ const cors = require('cors');
 require('dotenv').config();
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
+// Version: 1.0.1 - Emergency Refactor Fix
 
 // Routes & Middleware imports
 const authRoutes = require('./routes/auth');
