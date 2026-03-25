@@ -1,9 +1,17 @@
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
-// Version: 1.0.1 - Emergency Refactor Fix
+
+// Robustness Check: Pastikan env krusial termuat
+if (!process.env.SUPABASE_URL) {
+    console.error("❌ CRITICAL ERROR: .env variables failed to load!");
+    console.log("Looking for .env at:", path.join(__dirname, '.env'));
+}
+
+// Version: 1.0.3 - CI/CD Robustness Pack
 
 // Routes & Middleware imports
 const authRoutes = require('./routes/auth');

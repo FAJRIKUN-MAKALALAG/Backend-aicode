@@ -31,29 +31,31 @@ pipeline {
         stage('Create .env') {
             steps {
                 withCredentials([
-                    string(credentialsId: 'SUPABASE_URL', variable: 'SUPA_URL'),
-                    string(credentialsId: 'SUPABASE_KEY', variable: 'SUPA_KEY'),
-                    string(credentialsId: 'ENCRYPTION_KEY', variable: 'ENC_KEY'),
-                    string(credentialsId: 'GROQ_API_KEY', variable: 'GROQ_KEY'),
+                    string(credentialsId: 'SUPABASE_URL',    variable: 'SUPA_URL'),
+                    string(credentialsId: 'SUPABASE_KEY',    variable: 'SUPA_KEY'),
+                    string(credentialsId: 'ENCRYPTION_KEY',  variable: 'ENC_KEY'),
+                    string(credentialsId: 'GROQ_API_KEY',    variable: 'GROQ_KEY'),
                     string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'SUPA_ANON_KEY'),
                     string(credentialsId: 'GOOGLE_CLIENT_ID', variable: 'GOOGLE_CLIENT_ID'),
                     string(credentialsId: 'GOOGLE_CLIENT_SECRET', variable: 'GOOGLE_CLIENT_SECRET'),
-
                 ]) {
-                    sh """
-                        echo "PORT=${env.BACKEND_PORT}" > .env
-                        echo "NODE_ENV=${env.NODE_ENV}" >> .env
-                        echo "SUPABASE_URL=${SUPA_URL}" >> .env
-                        echo "SUPABASE_KEY=${SUPA_KEY}" >> .env
-                        echo "ENCRYPTION_KEY=${ENC_KEY}" >> .env
-                        echo "GROQ_API_KEY=${GROQ_KEY}" >> .env
-                        echo "SUPABASE_ANON_KEY=${SUPA_ANON_KEY}" >> .env
-                        echo "GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" >> .env
-                        echo "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}" >> .env
-                        echo "BACKEND_URL=${env.BACKEND_URL}" >> .env
-                        echo "FRONTEND_URL=${env.FRONTEND_URL}" >> .env
-                        echo "✅ File .env berhasil dibuat. Ukuran: \$(wc -c < .env) bytes"
-                    """
+                    sh '''
+                        cat <<EOF > .env
+PORT=${BACKEND_PORT}
+NODE_ENV=${NODE_ENV}
+SUPABASE_URL=${SUPA_URL}
+SUPABASE_KEY=${SUPA_KEY}
+ENCRYPTION_KEY=${ENC_KEY}
+GROQ_API_KEY=${GROQ_KEY}
+SUPABASE_ANON_KEY=${SUPA_ANON_KEY}
+GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+BACKEND_URL=${BACKEND_URL}
+FRONTEND_URL=${FRONTEND_URL}
+EOF
+                        echo "✅ File .env berhasil dibuat menggunakan metode atomic EOF."
+                        echo "📊 Ukuran file: $(wc -c < .env) bytes"
+                    '''
                 }
             }
         }
@@ -64,18 +66,18 @@ pipeline {
                     # 1. Pastikan folder tujuan ada
                     mkdir -p ${BACKEND_DIR}
                     
-                    # 2. Sync file TANPA node_modules dan TANPA paksa atribut owner/group
+                    # 2. Sync file TANPA node_modules
                     rsync -az --delete --no-perms --no-owner --no-group \
                       --exclude '.git' \
                       --exclude 'node_modules' \
                       --exclude 'Jenkinsfile' \
                       ./ ${BACKEND_DIR}/
                       
-                    # 3. Verifikasi file .env ada di tujuan
+                    # 3. Verifikasi file .env ada di tujuan setelah sinkronisasi
                     if [ -f "${BACKEND_DIR}/.env" ]; then
-                        echo "✅ Verifikasi: File .env ditemukan di ${BACKEND_DIR}"
+                        echo "✅ Verifikasi Sukses: .env ditemukan di direktori target."
                     else
-                        echo "❌ ERROR: File .env TIDAK ditemukan di ${BACKEND_DIR}"
+                        echo "❌ ERROR: .env hilang di direktori target. Cek izin folder!"
                         exit 1
                     fi
                 """
@@ -84,7 +86,6 @@ pipeline {
 
         stage('Install Dependencies on VPS') {
             steps {
-                // Jalankan npm install langsung di folder tujuan
                 dir("${BACKEND_DIR}") {
                     sh "npm install --omit=dev"
                 }
@@ -111,10 +112,10 @@ pipeline {
 
     post {
         success {
-            echo "✅ DEPLOY BERHASIL!"
+            echo "✅ DEPLOY SEMPURNA!"
         }
         failure {
-            echo "❌ DEPLOY GAGAL! Periksa izin folder di VPS atau Credentials di Jenkins."
+            echo "❌ DEPLOY GAGAL! Periksa log untuk detail."
         }
     }
 }
