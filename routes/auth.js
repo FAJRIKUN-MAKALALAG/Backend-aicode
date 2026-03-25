@@ -187,7 +187,7 @@ router.post('/forgot-password', async (req, res) => {
         }
 
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${process.env.FRONTEND_URL || 'https://aicode-unklab.online'}/reset-password`
+            redirectTo: `${process.env.FRONTEND_URL || 'https://aicode-unklab.online'}/auth/reset-password`
         });
 
         if (error) throw error;

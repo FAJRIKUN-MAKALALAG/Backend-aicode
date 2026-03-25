@@ -27,6 +27,32 @@ router.get('/:userId', requireAuth, async (req, res) => {
     }
 });
 
+// GET /api/conversations/:id - Get single conversation details
+router.get('/:id', requireAuth, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const { data, error } = await supabase
+            .from('conversations')
+            .select('*')
+            .eq('id', id)
+            .single();
+
+        if (error) throw error;
+        if (!data) return res.status(404).json({ error: 'Conversation not found' });
+
+        // Ownership check
+        if (data.user_id !== req.user.id) {
+            return res.status(403).json({ error: 'Forbidden' });
+        }
+
+        res.json(data);
+    } catch (error) {
+        console.error('Get Conversation Details Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // POST /api/conversations - Create new conversation
 router.post('/', requireAuth, async (req, res) => {
     try {
