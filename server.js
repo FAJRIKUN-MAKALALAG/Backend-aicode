@@ -21,9 +21,8 @@ app.set('trust proxy', 1);
 // Explicit CORS configuration — MUST be before rate limiter or any route
 const corsOptions = {
     origin: [
-        'https://aicode-unklab.online',     // ✅ Frontend production
-        'https://www.aicode-unklab.online',  // ✅ Frontend www
-        'https://unklab-aicode.online',      // alt domain
+        'https://unklab-aicode.online',      // ✅ Frontend production (domain utama)
+        'https://www.unklab-aicode.online',  // ✅ Frontend www
         'http://localhost:5173',             // Dev frontend Vite
         'http://localhost:8080',             // Dev alt
         'http://localhost:3000',             // Dev Express
