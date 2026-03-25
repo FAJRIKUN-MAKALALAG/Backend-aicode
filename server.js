@@ -93,7 +93,10 @@ if (supabaseUrl && supabaseKey && supabaseUrl.startsWith('http')) {
 
 // ========== AUTH MIDDLEWARE ==========
 async function requireAuth(req, res, next) {
-    let token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
+    // Sanitize token: tolak string "null", "undefined", atau string kosong
+    const rawToken = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
+    const INVALID_STRINGS = ['null', 'undefined', ''];
+    let token = rawToken && !INVALID_STRINGS.includes(rawToken.trim()) ? rawToken.trim() : null;
     const refreshToken = req.cookies.refresh_token;
     
     if (!token && !refreshToken) {
@@ -101,35 +104,45 @@ async function requireAuth(req, res, next) {
     }
     
     try {
-        let { data: { user }, error } = await supabase.auth.getUser(token);
-        
-        // Jika token tidak valid/expired, otomatis coba lakukan refresh
-        if (error || !user) {
-            if (refreshToken) {
-                const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
-                if (refreshError || !data.session) {
-                    res.clearCookie('access_token');
-                    res.clearCookie('refresh_token');
-                    return res.status(401).json({ error: 'Sesi habis, silakan login kembali' });
-                }
-                
-                // Set cookie baru
-                res.cookie('access_token', data.session.access_token, {
-                    httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 3600000
-                });
-                res.cookie('refresh_token', data.session.refresh_token, {
-                    httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 7 * 24 * 3600000
-                });
+        let user = null;
+
+        // Jika ada access_token yang valid (bukan null/undefined/kosong), coba validasi dulu
+        if (token) {
+            const { data, error } = await supabase.auth.getUser(token);
+            if (!error && data?.user) {
                 user = data.user;
-            } else {
-                return res.status(401).json({ error: 'Invalid or expired token' });
             }
         }
         
-        // Attach user ke req
+        // Jika token tidak valid/expired, otomatis coba lakukan refresh dengan refresh_token
+        if (!user && refreshToken) {
+            const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
+            if (refreshError || !data?.session) {
+                // Refresh juga gagal — bersihkan semua cookie
+                res.clearCookie('access_token', { path: '/' });
+                res.clearCookie('refresh_token', { path: '/' });
+                return res.status(401).json({ error: 'Sesi habis, silakan login kembali' });
+            }
+            
+            // Refresh berhasil — set cookie baru
+            res.cookie('access_token', data.session.access_token, {
+                httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 3600000
+            });
+            res.cookie('refresh_token', data.session.refresh_token, {
+                httpOnly: true, secure: process.env.NODE_ENV === 'production', sameSite: 'lax', path: '/', maxAge: 7 * 24 * 3600000
+            });
+            user = data.user;
+        }
+
+        if (!user) {
+            return res.status(401).json({ error: 'Invalid or expired token' });
+        }
+        
+        // Attach user ke req dan lanjutkan
         req.user = user;
         next();
     } catch (e) {
+        console.error('[requireAuth] Error:', e.message);
         return res.status(401).json({ error: 'Auth check failed' });
     }
 }
