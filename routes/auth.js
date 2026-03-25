@@ -187,7 +187,7 @@ router.post('/forgot-password', async (req, res) => {
         }
 
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${process.env.FRONTEND_URL || 'https://unklab-aicode.online'}/reset-password`
+            redirectTo: `${process.env.FRONTEND_URL || 'https://aicode-unklab.online'}/reset-password`
         });
 
         if (error) throw error;
@@ -322,7 +322,7 @@ router.get('/google/callback', async (req, res) => {
                 updated_at: new Date().toISOString()
             }, { onConflict: 'id' });
 
-        const frontendUrl = process.env.FRONTEND_URL || 'https://unklab-aicode.online';
+        const frontendUrl = process.env.FRONTEND_URL || 'https://aicode-unklab.online';
         const redirectUrl = new URL(`${frontendUrl}/auth/callback`);
         
         redirectUrl.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_in=${session.expires_in || 3600}&token_type=bearer&type=magiclink`;
@@ -331,7 +331,7 @@ router.get('/google/callback', async (req, res) => {
 
     } catch (error) {
         console.error('Google Callback Error:', error);
-        const frontendUrl = process.env.FRONTEND_URL || 'https://unklab-aicode.online';
+        const frontendUrl = process.env.FRONTEND_URL || 'https://aicode-unklab.online';
         const errorMsg = encodeURIComponent(error.message);
         res.redirect(`${frontendUrl}/auth/error?message=${errorMsg}`);
     }
