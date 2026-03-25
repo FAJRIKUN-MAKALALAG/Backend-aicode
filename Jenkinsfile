@@ -18,7 +18,7 @@ pipeline {
         NODE_ENV     = "production"   // WAJIB: aktifkan SameSite=None + secure cookie
         PATH = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin:$PATH"
         BACKEND_URL = "https://api.unklab-aicode.online"
-        FRONTEND_URL = "https://aicode.unklab.online"
+        FRONTEND_URL = "https://aicode-unklab.online"
     }
 
     stages {

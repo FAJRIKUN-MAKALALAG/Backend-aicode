@@ -20,34 +20,53 @@ app.set('trust proxy', 1);
 // Explicit CORS configuration — MUST be before rate limiter or any route
 const corsOptions = {
     origin: [
-        'https://aicode.unklab.online',    // Frontend production
-        'https://unklab-aicode.online',     // Frontend alt domain
-        'http://localhost:5173',            // Dev frontend
-        'http://localhost:3000',            // Dev alt
+        'https://aicode-unklab.online',     // ✅ Frontend production (domain utama)
+        'https://www.aicode-unklab.online',  // ✅ Frontend www
+        'https://unklab-aicode.online',      // alt domain lama
+        'http://localhost:5173',             // Dev frontend Vite
+        'http://localhost:8080',             // Dev alt
+        'http://localhost:3000',             // Dev Express
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    credentials: true,  // WAJIB agar browser mau kirim cookie cross-origin
+    exposedHeaders: ['Set-Cookie'],  // ekspos header cookie ke browser
+    credentials: true,              // WAJIB agar browser mau kirim cookie cross-origin
     optionsSuccessStatus: 200,
 };
 
 // Enable CORS for all routes
 app.use(cors(corsOptions));
 
+// Handle pre-flight OPTIONS request secara eksplisit (WAJIB untuk cross-origin)
+app.options('*', cors(corsOptions));
+
 // ========== COOKIE HELPER ==========
-// Di production (cross-origin): SameSite=None + Secure=true (WAJIB untuk beda domain)
-// Di development (localhost):   SameSite=Lax  + Secure=false
+// SameSite=None + Secure=true WAJIB untuk cross-origin (beda domain)
+// Di localhost dev: SameSite=Lax + Secure=false agar tetap berjalan tanpa HTTPS
 const IS_PROD = process.env.NODE_ENV === 'production';
+
+// Options untuk set cookie
 function cookieOpts(maxAge) {
     return {
         httpOnly: true,
-        secure: IS_PROD,                   // true di production (HTTPS)
-        sameSite: IS_PROD ? 'none' : 'lax', // 'none' wajib untuk cross-origin cookie
+        secure: IS_PROD,                    // true di production (HTTPS wajib)
+        sameSite: IS_PROD ? 'none' : 'lax', // 'none' wajib untuk cross-origin beda domain
         path: '/',
         maxAge,
     };
 }
-const ACCESS_TOKEN_TTL  = 60 * 60 * 1000;       // 1 jam
+
+// Options untuk clearCookie — HARUS sama persis dengan saat set agar browser benar hapus
+function clearCookieOpts() {
+    return {
+        httpOnly: true,
+        secure: IS_PROD,
+        sameSite: IS_PROD ? 'none' : 'lax',
+        path: '/',
+    };
+}
+
+const ACCESS_TOKEN_TTL  = 60 * 60 * 1000;           // 1 jam
 const REFRESH_TOKEN_TTL = 7 * 24 * 60 * 60 * 1000; // 7 hari
 
 // Global rate limiter — longgar untuk auth, data fetch, dsb.
@@ -136,8 +155,8 @@ async function requireAuth(req, res, next) {
             const { data, error: refreshError } = await supabase.auth.refreshSession({ refresh_token: refreshToken });
             if (refreshError || !data?.session) {
                 // Refresh juga gagal — bersihkan semua cookie
-                res.clearCookie('access_token', { path: '/' });
-                res.clearCookie('refresh_token', { path: '/' });
+                res.clearCookie('access_token', clearCookieOpts());
+                res.clearCookie('refresh_token', clearCookieOpts());
                 return res.status(401).json({ error: 'Sesi habis, silakan login kembali' });
             }
             
@@ -213,8 +232,8 @@ app.post('/api/auth/set-session', async (req, res) => {
 
 // POST clear-session - Hapus cookie secara total
 app.post('/api/auth/clear-session', (req, res) => {
-    res.clearCookie('access_token', { path: '/' });
-    res.clearCookie('refresh_token', { path: '/' });
+    res.clearCookie('access_token', clearCookieOpts());
+    res.clearCookie('refresh_token', clearCookieOpts());
     res.clearCookie('user_data', { path: '/' }); // Bersihkan cookie lama yang insecure juga
     res.json({ message: "Session berhasil dihapus" });
 });
@@ -310,8 +329,8 @@ app.post('/api/auth/logout', async (req, res) => {
         const token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
 
         // Selalu hapus cookies browser terlebih dahulu
-        res.clearCookie('access_token', { path: '/' });
-        res.clearCookie('refresh_token', { path: '/' });
+        res.clearCookie('access_token', clearCookieOpts());
+        res.clearCookie('refresh_token', clearCookieOpts());
         res.clearCookie('user_data', { path: '/' }); // legacy cleanup
 
         if (token) {
