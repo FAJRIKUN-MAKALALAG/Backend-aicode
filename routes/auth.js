@@ -323,7 +323,7 @@ router.get('/google/callback', async (req, res) => {
             }, { onConflict: 'id' });
 
         const frontendUrl = process.env.FRONTEND_URL || 'https://aicode-unklab.online';
-        const redirectUrl = new URL(`${frontendUrl}/auth/callback`);
+        const redirectUrl = new URL(`${frontendUrl}/auth/google/callback`);
         
         redirectUrl.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_in=${session.expires_in || 3600}&token_type=bearer&type=magiclink`;
 
