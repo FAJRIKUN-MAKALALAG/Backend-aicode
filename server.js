@@ -22,7 +22,7 @@ app.set('trust proxy', 1);
 const corsOptions = {
     origin: [
         'https://unklab-aicode.online',      // ✅ Frontend production (domain utama)
-        'https://www.unklab-aicode.online',  // ✅ Frontend www
+        'https://www.aicode-unklab.online',  // ✅ Frontend www
         'http://localhost:5173',             // Dev frontend Vite
         'http://localhost:8080',             // Dev alt
         'http://localhost:3000',             // Dev Express
