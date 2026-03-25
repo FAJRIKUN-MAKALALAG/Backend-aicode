@@ -9,6 +9,7 @@ const Groq = require('groq-sdk');
 
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
+const cookieParser = require('cookie-parser');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -66,6 +67,7 @@ const chatLimiter = rateLimit({
 app.use(limiter);
 
 app.use(express.json());
+app.use(cookieParser());
 
 // GLOBAL REQUEST LOGGER (Untuk melacak semua request yang masuk)
 app.use((req, res, next) => {
@@ -91,8 +93,13 @@ if (supabaseUrl && supabaseKey && supabaseUrl.startsWith('http')) {
 
 // ========== AUTH MIDDLEWARE ==========
 async function requireAuth(req, res, next) {
-    const token = req.headers.authorization?.replace('Bearer ', '');
-    if (!token) return res.status(401).json({ error: 'No auth token provided' });
+    // Ambil token dari Cookie browser, fallback ke Headers jika tidak ada
+    const token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
+    
+    if (!token) {
+        return res.status(401).json({ error: "Sesi habis/Belum login" });
+    }
+    
     try {
         const { data: { user }, error } = await supabase.auth.getUser(token);
         if (error || !user) return res.status(401).json({ error: 'Invalid or expired token' });
@@ -118,6 +125,34 @@ app.get('/api/config/supabase', (req, res) => {
 });
 
 // ========== AUTHENTICATION API ==========
+
+// POST set-session - Ubah token jadi HTTP-Only Cookie
+app.post('/api/auth/set-session', (req, res) => {
+    const { access_token, user } = req.body;
+    // Set cookie "access_token" untuk 1 jam (3600000 millisecond)
+    res.cookie('access_token', access_token, {
+        httpOnly: true,  // SUPER PENTING: Cookie tidak bisa dicuri hacker lewat XSS Javascript
+        secure: process.env.NODE_ENV === 'production', // Wajib HTTPS kalau di production
+        sameSite: 'lax', // Gunakan 'none' jika frontend & backend beda domain, butuh secure:true
+        maxAge: 3600000  // Expired dalam 1 Jam
+    });
+    // Set cookie user_data supaya Frontend (React) tahu siapa yang login
+    // Ini BUKAN httpOnly, agar React bisa membaca nama/email user di pojok kanan atas
+    if (user) {
+        res.cookie('user_data', JSON.stringify(user), {
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 3600000
+        });
+    }
+    res.json({ message: "Session berhasil dibuat" });
+});
+
+app.post('/api/auth/clear-session', (req, res) => {
+    res.clearCookie('access_token');
+    res.clearCookie('user_data');
+    res.json({ message: "Session berhasil dihapus" });
+});
 
 // POST signup - Create new user
 app.post('/api/auth/signup', async (req, res) => {
@@ -206,8 +241,8 @@ app.post('/api/auth/login', async (req, res) => {
 // POST logout - Sign out user
 app.post('/api/auth/logout', async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        const token = authHeader?.replace('Bearer ', '');
+        // Ambil token dari Cookie browser, fallback ke Headers jika tidak ada
+        const token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
 
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });
@@ -229,8 +264,8 @@ app.post('/api/auth/logout', async (req, res) => {
 // POST verify - Verify token and get user info
 app.post('/api/auth/verify', async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        const token = authHeader?.replace('Bearer ', '');
+        // Ambil token dari Cookie browser, fallback ke Headers jika tidak ada
+        const token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
 
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });
@@ -433,8 +468,8 @@ app.get('/api/auth/google/callback', async (req, res) => {
 // Backend already synced the profile in the GET callback, so we just return success
 app.post('/api/auth/google/callback', async (req, res) => {
     try {
-        const authHeader = req.headers.authorization;
-        const token = authHeader?.replace('Bearer ', '');
+        // Ambil token dari Cookie browser, fallback ke Headers jika tidak ada
+        const token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
 
         if (!token) {
             return res.status(401).json({ error: 'No token provided' });
