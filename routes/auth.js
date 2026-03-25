@@ -86,17 +86,18 @@ router.post('/signup', async (req, res) => {
             console.log('Profile creation note:', profileError.message);
         }
 
+        res.cookie('access_token', data.session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
+        if (data.session.refresh_token) {
+            res.cookie('refresh_token', data.session.refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
+        }
+
         res.json({
             user: {
                 id: data.user.id,
                 email: data.user.email,
                 username: data.user.user_metadata.username
             },
-            session: {
-                access_token: data.session.access_token,
-                refresh_token: data.session.refresh_token,
-                expires_at: data.session.expires_at
-            }
+            message: "Direct cookie auth success"
         });
     } catch (error) {
         console.error('Signup Error:', error);
@@ -120,17 +121,18 @@ router.post('/login', async (req, res) => {
 
         if (error) throw error;
 
+        res.cookie('access_token', data.session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
+        if (data.session.refresh_token) {
+            res.cookie('refresh_token', data.session.refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
+        }
+
         res.json({
             user: {
                 id: data.user.id,
                 email: data.user.email,
                 username: data.user.user_metadata.username
             },
-            session: {
-                access_token: data.session.access_token,
-                refresh_token: data.session.refresh_token,
-                expires_at: data.session.expires_at
-            }
+            message: "Direct cookie auth success"
         });
     } catch (error) {
         console.error('Login Error:', error);
@@ -331,12 +333,16 @@ router.get('/google/callback', async (req, res) => {
                 updated_at: new Date().toISOString()
             }, { onConflict: 'id' });
 
-        const frontendUrl = process.env.FRONTEND_URL || 'https://unklab-aicode.online';
-        const redirectUrl = new URL(`${frontendUrl}/auth/google/callback`);
-        
-        redirectUrl.hash = `access_token=${session.access_token}&refresh_token=${session.refresh_token}&expires_in=${session.expires_in || 3600}&token_type=bearer&type=magiclink`;
+        // FAST GOOGLE AUTH: Set cookies directly at backend, skip frontend callback UI entirely!
+        res.cookie('access_token', session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
+        if (session.refresh_token) {
+            res.cookie('refresh_token', session.refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
+        }
 
-        res.redirect(redirectUrl.toString());
+        const frontendUrl = process.env.FRONTEND_URL || 'https://unklab-aicode.online';
+        
+        // Redirect completely to home. Frontend AuthContext will detect the session instantly!
+        res.redirect(`${frontendUrl}/?auth_success=1`);
 
     } catch (error) {
         console.error('Google Callback Error:', error);
