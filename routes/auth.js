@@ -340,9 +340,8 @@ router.get('/google/callback', async (req, res) => {
         }
 
         const frontendUrl = process.env.FRONTEND_URL || 'https://unklab-aicode.online';
-        
         // Redirect completely to home. Frontend AuthContext will detect the session instantly!
-        res.redirect(`${frontendUrl}/?auth_success=1`);
+        res.redirect(frontendUrl);
 
     } catch (error) {
         console.error('Google Callback Error:', error);

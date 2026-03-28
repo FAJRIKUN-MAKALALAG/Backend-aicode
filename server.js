@@ -54,8 +54,8 @@ app.use(cookieParser());
 // Global rate limiter
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, 
-    max: 2000,                  
-    message: 'Too many requests, please try again later.',
+    max: 10000,                  
+    message: 'Too many requests, please try again laterr',
     standardHeaders: true,
     legacyHeaders: false,
     validate: false, 
