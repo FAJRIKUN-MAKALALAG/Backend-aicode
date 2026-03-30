@@ -22,7 +22,7 @@ const chatLimiter = rateLimit({
     }
 });
 
-router.post('/', chatLimiter, async (req, res) => {
+router.post('/', chatLimiter, requireAuth, async (req, res) => {
     // Logging for PM2 monitoring
     console.log("--- REQUEST MASUK ---");
     console.log("User ID:", req.body.userId);
@@ -40,15 +40,23 @@ router.post('/', chatLimiter, async (req, res) => {
     res.write(' ');
 
     try {
-        const { messages: currentMessages, conversationId, userId, mode, apiKey: providedKey } = req.body;
+        const { messages: currentMessages, conversationId, mode, apiKey: providedKey } = req.body;
+        // FIXED: Selalu ambil userId dari token (req.user.id), BUKAN dari body
+        // Ini mencegah user A request dengan userId user B
+        const userId = req.user.id;
 
         // 3. Parallel Fetch: API Key and 15-message history
+        // Validasi ownership conversation sebelum fetch history
         const [keyResult, historyResult] = await Promise.all([
             (!providedKey && userId) ?
                 supabase.from('user_secrets').select('encrypted_value, iv').eq('user_id', userId).eq('key_name', 'GEMINI_API_KEY').single() :
                 Promise.resolve({ data: null }),
             conversationId ?
-                supabase.from('messages').select('role, content').eq('conversation_id', conversationId).order('created_at', { ascending: false }).limit(15) :
+                supabase.from('messages')
+                    .select('role, content')
+                    .eq('conversation_id', conversationId)
+                    .order('created_at', { ascending: false })
+                    .limit(15) :
                 Promise.resolve({ data: [] })
         ]);
 

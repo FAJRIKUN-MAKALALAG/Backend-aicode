@@ -3,14 +3,13 @@ const router = express.Router();
 const supabase = require('../config/supabase');
 const { requireAuth } = require('../middleware/auth');
 
-// GET /api/conversations/:userId - Get all conversations for a user
-router.get('/:userId', requireAuth, async (req, res) => {
+// GET /api/conversations - Get all conversations for the logged-in user
+// FIXED: Dulu pakai /:userId yang BENTROK dengan /:id di bawah!
+// Express tidak bisa bedakan "userId" vs "id" — keduanya string parameter.
+// Solusi: gunakan /mine untuk list, dan /:id untuk detail.
+router.get('/mine', requireAuth, async (req, res) => {
     try {
-        const { userId } = req.params;
-
-        if (req.user.id !== userId) {
-            return res.status(403).json({ error: 'Forbidden: access denied' });
-        }
+        const userId = req.user.id; // Ambil dari token, BUKAN dari URL param
 
         const { data, error } = await supabase
             .from('conversations')
@@ -27,24 +26,23 @@ router.get('/:userId', requireAuth, async (req, res) => {
     }
 });
 
-// GET /api/conversations/:id - Get single conversation details
+// GET /api/conversations/:id - Get single conversation detail
 router.get('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
+        const userId = req.user.id;
 
         const { data, error } = await supabase
             .from('conversations')
             .select('*')
             .eq('id', id)
+            .eq('user_id', userId)  // Filter sekaligus untuk ownership check
             .single();
 
-        if (error) throw error;
-        if (!data) return res.status(404).json({ error: 'Conversation not found' });
-
-        // Ownership check
-        if (data.user_id !== req.user.id) {
-            return res.status(403).json({ error: 'Forbidden' });
+        if (error && error.code === 'PGRST116') {
+            return res.status(404).json({ error: 'Conversation not found or access denied' });
         }
+        if (error) throw error;
 
         res.json(data);
     } catch (error) {
@@ -57,7 +55,7 @@ router.get('/:id', requireAuth, async (req, res) => {
 router.post('/', requireAuth, async (req, res) => {
     try {
         const { title } = req.body;
-        const userId = req.user.id;
+        const userId = req.user.id; // SELALU dari token, bukan dari body
 
         if (!title) {
             return res.status(400).json({ error: 'Missing title' });
@@ -83,18 +81,24 @@ router.put('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
         const { title } = req.body;
+        const userId = req.user.id;
 
         if (!title) {
             return res.status(400).json({ error: 'Missing title' });
         }
 
+        // Update dengan ownership check sekaligus
         const { data, error } = await supabase
             .from('conversations')
             .update({ title, updated_at: new Date().toISOString() })
             .eq('id', id)
+            .eq('user_id', userId)  // Pastikan hanya bisa update punya sendiri
             .select()
             .single();
 
+        if (error && error.code === 'PGRST116') {
+            return res.status(404).json({ error: 'Conversation not found or access denied' });
+        }
         if (error) throw error;
 
         res.json(data);
@@ -108,26 +112,20 @@ router.put('/:id', requireAuth, async (req, res) => {
 router.delete('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
+        const userId = req.user.id;
 
-        const { data: conv, error: fetchErr } = await supabase
-            .from('conversations')
-            .select('user_id')
-            .eq('id', id)
-            .single();
-
-        if (fetchErr || !conv) {
-            return res.status(404).json({ error: 'Conversation not found' });
-        }
-        if (conv.user_id !== req.user.id) {
-            return res.status(403).json({ error: 'Forbidden: not your conversation' });
-        }
-
-        const { error } = await supabase
+        // Delete dengan ownership check sekaligus — tidak perlu fetch dulu
+        const { data, error } = await supabase
             .from('conversations')
             .delete()
-            .eq('id', id);
+            .eq('id', id)
+            .eq('user_id', userId)  // Hanya hapus kalau memang punya sendiri
+            .select();
 
         if (error) throw error;
+        if (!data || data.length === 0) {
+            return res.status(404).json({ error: 'Conversation not found or access denied' });
+        }
 
         res.json({ success: true });
     } catch (error) {
