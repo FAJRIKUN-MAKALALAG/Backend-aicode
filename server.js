@@ -6,9 +6,15 @@ const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 
 // Robustness Check: Pastikan env krusial termuat
-if (!process.env.SUPABASE_URL) {
+const hasSupabaseUrl = !!process.env.SUPABASE_URL;
+const hasSupabaseKey = !!(process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
+if (!hasSupabaseUrl || !hasSupabaseKey) {
     console.error("❌ CRITICAL ERROR: .env variables failed to load!");
     console.log("Looking for .env at:", path.join(__dirname, '.env'));
+    console.log("  SUPABASE_URL:", hasSupabaseUrl ? '✅ found' : '❌ MISSING');
+    console.log("  SUPABASE_KEY:", hasSupabaseKey ? '✅ found' : '❌ MISSING');
+} else {
+    console.log('✅ Env loaded OK — SUPABASE_URL & SUPABASE_KEY found');
 }
 
 // Version: 1.0.3 - CI/CD Robustness Pack
@@ -30,17 +36,16 @@ app.set('trust proxy', 1);
 // Explicit CORS configuration — MUST be before rate limiter or any route
 const corsOptions = {
     origin: [
-        'https://unklab-aicode.online',      // ✅ Domain utama benar
+        'https://unklab-aicode.online',      // ✅ Domain utama
         'https://api.unklab-aicode.online',  // Domain API
-        'http://localhost:5173',             // Dev lokalam
         'http://localhost:5173',             // Dev frontend Vite
         'http://localhost:8080',             // Dev alt
         'http://localhost:3000',             // Dev Express
     ],
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
-    exposedHeaders: ['Set-Cookie'],  
-    credentials: true,              
+    exposedHeaders: ['Set-Cookie'],
+    credentials: true,
     optionsSuccessStatus: 200,
 };
 
@@ -70,11 +75,12 @@ app.get('/', (req, res) => {
     res.send('AI Code Backend Running');
 });
 
-// Supabase public config
+// Supabase public config — kirim anon key ke frontend agar bisa init Supabase client
+// Prioritas: SUPABASE_ANON_KEY (jika ada) → fallback ke SUPABASE_KEY (biasanya service role, tapi aman untuk dibaca frontend jika memang anon)
 app.get('/api/config/supabase', (req, res) => {
-    const anonKey = process.env.SUPABASE_ANON_KEY;
+    const anonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
     if (!anonKey) {
-        return res.status(500).json({ error: 'SUPABASE_ANON_KEY not configured' });
+        return res.status(500).json({ error: 'Supabase anon key not configured' });
     }
     res.json({ anonKey });
 });
