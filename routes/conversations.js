@@ -1,24 +1,24 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../config/supabase');
 const { requireAuth } = require('../middleware/auth');
 
-// GET /api/conversations - Get all conversations for the logged-in user
-// FIXED: Dulu pakai /:userId yang BENTROK dengan /:id di bawah!
-// Express tidak bisa bedakan "userId" vs "id" — keduanya string parameter.
-// Solusi: gunakan /mine untuk list, dan /:id untuk detail.
+// ================================================================
+// PENTING: Semua route pakai req.supabase (user-scoped client)
+// yang di-inject oleh requireAuth middleware.
+// req.supabase membawa user's JWT → RLS auth.uid() bekerja benar.
+// ================================================================
+
+// GET /api/conversations  OR  GET /api/conversations/mine
+// Ambil semua conversations untuk user yang sedang login
 router.get('/mine', requireAuth, async (req, res) => {
     try {
-        const userId = req.user.id; // Ambil dari token, BUKAN dari URL param
-
-        const { data, error } = await supabase
+        const { data, error } = await req.supabase
             .from('conversations')
             .select('*')
-            .eq('user_id', userId)
+            .eq('user_id', req.user.id)
             .order('updated_at', { ascending: false });
 
         if (error) throw error;
-
         res.json(data || []);
     } catch (error) {
         console.error('Get Conversations Error:', error);
@@ -26,49 +26,70 @@ router.get('/mine', requireAuth, async (req, res) => {
     }
 });
 
-// GET /api/conversations/:id - Get single conversation detail
-router.get('/:id', requireAuth, async (req, res) => {
+// GET /api/conversations/:userId — Backward Compat untuk frontend lama
+// Frontend masih panggil /:userId, kita terima tapi pakai userId dari token
+router.get('/:userId', requireAuth, async (req, res) => {
     try {
-        const { id } = req.params;
+        // Paksa userId dari token — abaikan yang dari URL tapi tetap validasi
         const userId = req.user.id;
+        const urlUserId = req.params.userId;
 
-        const { data, error } = await supabase
+        // Jika urlUserId bukan user-id (panjang UUID), anggap sebagai conversationId
+        // UUID format: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx (36 chars)
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(urlUserId);
+
+        if (isUUID && urlUserId !== userId) {
+            // URL userId bukan milik user ini — coba sebagai conversationId
+            const { data: conv, error: convErr } = await req.supabase
+                .from('conversations')
+                .select('*')
+                .eq('id', urlUserId)
+                .eq('user_id', userId)
+                .single();
+
+            if (convErr && convErr.code === 'PGRST116') {
+                return res.status(404).json({ error: 'Conversation not found' });
+            }
+            if (convErr) throw convErr;
+            return res.json(conv);
+        }
+
+        // Kalau urlUserId === userId atau bukan UUID → return list conversations
+        if (urlUserId !== userId) {
+            return res.status(403).json({ error: 'Forbidden: access denied' });
+        }
+
+        const { data, error } = await req.supabase
             .from('conversations')
             .select('*')
-            .eq('id', id)
-            .eq('user_id', userId)  // Filter sekaligus untuk ownership check
-            .single();
+            .eq('user_id', userId)
+            .order('updated_at', { ascending: false });
 
-        if (error && error.code === 'PGRST116') {
-            return res.status(404).json({ error: 'Conversation not found or access denied' });
-        }
         if (error) throw error;
-
-        res.json(data);
+        res.json(data || []);
     } catch (error) {
-        console.error('Get Conversation Details Error:', error);
+        console.error('Get Conversations Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
 
-// POST /api/conversations - Create new conversation
+// POST /api/conversations — Buat conversation baru
 router.post('/', requireAuth, async (req, res) => {
     try {
         const { title } = req.body;
-        const userId = req.user.id; // SELALU dari token, bukan dari body
+        const userId = req.user.id;
 
         if (!title) {
             return res.status(400).json({ error: 'Missing title' });
         }
 
-        const { data, error } = await supabase
+        const { data, error } = await req.supabase
             .from('conversations')
             .insert({ user_id: userId, title })
             .select()
             .single();
 
         if (error) throw error;
-
         res.json(data);
     } catch (error) {
         console.error('Create Conversation Error:', error);
@@ -76,7 +97,7 @@ router.post('/', requireAuth, async (req, res) => {
     }
 });
 
-// PUT /api/conversations/:id - Update conversation title
+// PUT /api/conversations/:id — Update title conversation
 router.put('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
@@ -87,12 +108,11 @@ router.put('/:id', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Missing title' });
         }
 
-        // Update dengan ownership check sekaligus
-        const { data, error } = await supabase
+        const { data, error } = await req.supabase
             .from('conversations')
             .update({ title, updated_at: new Date().toISOString() })
             .eq('id', id)
-            .eq('user_id', userId)  // Pastikan hanya bisa update punya sendiri
+            .eq('user_id', userId)
             .select()
             .single();
 
@@ -100,7 +120,6 @@ router.put('/:id', requireAuth, async (req, res) => {
             return res.status(404).json({ error: 'Conversation not found or access denied' });
         }
         if (error) throw error;
-
         res.json(data);
     } catch (error) {
         console.error('Update Conversation Error:', error);
@@ -114,19 +133,17 @@ router.delete('/:id', requireAuth, async (req, res) => {
         const { id } = req.params;
         const userId = req.user.id;
 
-        // Delete dengan ownership check sekaligus — tidak perlu fetch dulu
-        const { data, error } = await supabase
+        const { data, error } = await req.supabase
             .from('conversations')
             .delete()
             .eq('id', id)
-            .eq('user_id', userId)  // Hanya hapus kalau memang punya sendiri
+            .eq('user_id', userId)
             .select();
 
         if (error) throw error;
         if (!data || data.length === 0) {
             return res.status(404).json({ error: 'Conversation not found or access denied' });
         }
-
         res.json({ success: true });
     } catch (error) {
         console.error('Delete Conversation Error:', error);

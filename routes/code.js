@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const supabase = require('../config/supabase');
 const { requireAuth } = require('../middleware/auth');
 
-// GET /api/code/:userId - Get all code snippets for a user
+// GET /api/code/:userId
 router.get('/:userId', requireAuth, async (req, res) => {
     try {
         const { userId } = req.params;
@@ -12,14 +11,13 @@ router.get('/:userId', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Forbidden: access denied' });
         }
 
-        const { data, error } = await supabase
+        const { data, error } = await req.supabase
             .from('code_snippets')
             .select('*')
             .eq('user_id', userId)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
-
         res.json(data || []);
     } catch (error) {
         console.error('Get Code Snippets Error:', error);
@@ -27,19 +25,18 @@ router.get('/:userId', requireAuth, async (req, res) => {
     }
 });
 
-// GET /api/code/conversation/:conversationId - Get code snippets for a specific conversation
+// GET /api/code/conversation/:conversationId
 router.get('/conversation/:conversationId', requireAuth, async (req, res) => {
     try {
         const { conversationId } = req.params;
 
-        const { data, error } = await supabase
+        const { data, error } = await req.supabase
             .from('code_snippets')
             .select('*')
             .eq('conversation_id', conversationId)
             .order('created_at', { ascending: false });
 
         if (error) throw error;
-
         res.json(data || []);
     } catch (error) {
         console.error('Get Conversation Code Error:', error);
@@ -47,16 +44,18 @@ router.get('/conversation/:conversationId', requireAuth, async (req, res) => {
     }
 });
 
-// POST /api/code - Save new code snippet
+// POST /api/code
 router.post('/', requireAuth, async (req, res) => {
     try {
-        const { userId, conversationId, title, code_content, language } = req.body;
+        const { conversationId, title, code_content, language } = req.body;
+        // FIXED: Selalu pakai userId dari token, abaikan dari body
+        const userId = req.user.id;
 
-        if (!userId || !code_content || !language) {
-            return res.status(400).json({ error: 'Missing required fields' });
+        if (!code_content || !language) {
+            return res.status(400).json({ error: 'Missing required fields (code_content, language)' });
         }
 
-        const { data, error } = await supabase
+        const { data, error } = await req.supabase
             .from('code_snippets')
             .insert({
                 user_id: userId,
@@ -69,7 +68,6 @@ router.post('/', requireAuth, async (req, res) => {
             .single();
 
         if (error) throw error;
-
         res.json(data);
     } catch (error) {
         console.error('Create Code Snippet Error:', error);
@@ -77,11 +75,12 @@ router.post('/', requireAuth, async (req, res) => {
     }
 });
 
-// PUT /api/code/:id - Update code snippet
+// PUT /api/code/:id
 router.put('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
         const { title, code_content, language } = req.body;
+        const userId = req.user.id;
 
         const updates = {};
         if (title !== undefined) updates.title = title;
@@ -92,15 +91,19 @@ router.put('/:id', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'No fields to update' });
         }
 
-        const { data, error } = await supabase
+        // RLS memastikan hanya bisa update milik sendiri
+        const { data, error } = await req.supabase
             .from('code_snippets')
             .update(updates)
             .eq('id', id)
+            .eq('user_id', userId)
             .select()
             .single();
 
+        if (error && error.code === 'PGRST116') {
+            return res.status(404).json({ error: 'Code snippet not found or access denied' });
+        }
         if (error) throw error;
-
         res.json(data);
     } catch (error) {
         console.error('Update Code Snippet Error:', error);
@@ -112,14 +115,15 @@ router.put('/:id', requireAuth, async (req, res) => {
 router.delete('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
+        const userId = req.user.id;
 
-        const { error } = await supabase
+        const { error } = await req.supabase
             .from('code_snippets')
             .delete()
-            .eq('id', id);
+            .eq('id', id)
+            .eq('user_id', userId);
 
         if (error) throw error;
-
         res.json({ success: true });
     } catch (error) {
         console.error('Delete Code Snippet Error:', error);

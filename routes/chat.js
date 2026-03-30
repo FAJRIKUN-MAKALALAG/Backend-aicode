@@ -49,10 +49,10 @@ router.post('/', chatLimiter, requireAuth, async (req, res) => {
         // Validasi ownership conversation sebelum fetch history
         const [keyResult, historyResult] = await Promise.all([
             (!providedKey && userId) ?
-                supabase.from('user_secrets').select('encrypted_value, iv').eq('user_id', userId).eq('key_name', 'GEMINI_API_KEY').single() :
+                req.supabase.from('user_secrets').select('encrypted_value, iv').eq('user_id', userId).eq('key_name', 'GEMINI_API_KEY').single() :
                 Promise.resolve({ data: null }),
             conversationId ?
-                supabase.from('messages')
+                req.supabase.from('messages')
                     .select('role, content')
                     .eq('conversation_id', conversationId)
                     .order('created_at', { ascending: false })
@@ -85,7 +85,7 @@ router.post('/', chatLimiter, requireAuth, async (req, res) => {
         // 6. Non-Blocking User Msg Save
         const lastUserMsg = currentMessages[currentMessages.length - 1];
         if (conversationId && lastUserMsg) {
-            supabase.from('messages').insert({
+            req.supabase.from('messages').insert({
                 conversation_id: conversationId,
                 role: lastUserMsg.role,
                 content: lastUserMsg.content
@@ -139,7 +139,7 @@ router.post('/', chatLimiter, requireAuth, async (req, res) => {
             res.end();
             
             if (conversationId && fullAssistantText) {
-                supabase.from('messages').insert({
+                req.supabase.from('messages').insert({
                     conversation_id: conversationId,
                     role: 'assistant',
                     content: fullAssistantText
