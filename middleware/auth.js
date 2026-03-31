@@ -53,6 +53,24 @@ function clearCookieOpts() {
     return opts;
 }
 
+/**
+ * Utility to aggressively clear cookies on both the primary domain and host-only,
+ * to prevent old cookies from shadowing new ones after architecture changes.
+ */
+function clearAllLegacyCookies(res) {
+    const defaultOpts = { path: '/', httpOnly: true, secure: IS_PROD, sameSite: IS_PROD ? 'none' : 'lax' };
+    
+    // 1. Clear with Explicit Domain
+    res.clearCookie('access_token', clearCookieOpts());
+    res.clearCookie('refresh_token', clearCookieOpts());
+    res.clearCookie('user_data', { path: '/', domain: clearCookieOpts().domain });
+    
+    // 2. Clear Host-Only (No domain)
+    res.clearCookie('access_token', defaultOpts);
+    res.clearCookie('refresh_token', defaultOpts);
+    res.clearCookie('user_data', { path: '/' });
+}
+
 const ACCESS_TOKEN_TTL  = 8 * 60 * 60 * 1000;       // 8 jam
 const REFRESH_TOKEN_TTL = 30 * 24 * 60 * 60 * 1000; // 30 hari
 
@@ -103,11 +121,12 @@ async function requireAuth(req, res, next) {
 
         // Step 1: Validasi access_token (stateless, concurrent-safe)
         if (token) {
+            console.log(`[requireAuth] Token is truthy! Type: ${typeof token}, Length: ${token.length}, Value starts with: ${token.substring(0, 15)}...`);
             const { data, error } = await supabaseAdmin.auth.getUser(token);
             if (!error && data?.user) {
                 user = data.user;
             } else {
-                console.log(`[requireAuth] Access token expired (${error?.message}) — mencoba refresh...`);
+                console.log(`[requireAuth] Access token expired: (Error: ${error?.message}, Status: ${error?.status}) — mencoba refresh...`);
             }
         }
 
@@ -132,10 +151,9 @@ async function requireAuth(req, res, next) {
                 console.warn(`[requireAuth] Refresh gagal: ${errMsg}`);
 
                 // Hanya clear cookie jika token benar-benar tidak valid
-                const isTokenInvalid = errMsg.includes('invalid') || errMsg.includes('expired') || errMsg.includes('not found');
+                const isTokenInvalid = errMsg.includes('invalid') || errMsg.includes('expired') || errMsg.includes('not found') || errMsg.includes('session');
                 if (isTokenInvalid) {
-                    res.clearCookie('access_token', clearCookieOpts());
-                    res.clearCookie('refresh_token', clearCookieOpts());
+                    clearAllLegacyCookies(res);
                     return res.status(401).json({ error: 'Sesi habis, silakan login kembali' });
                 } else {
                     return res.status(503).json({ error: 'Layanan autentikasi sementara tidak tersedia, coba lagi.' });
@@ -163,6 +181,7 @@ module.exports = {
     requireAuth,
     cookieOpts,
     clearCookieOpts,
+    clearAllLegacyCookies,
     ACCESS_TOKEN_TTL,
     REFRESH_TOKEN_TTL
 };

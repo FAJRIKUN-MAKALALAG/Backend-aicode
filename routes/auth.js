@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../config/supabase');
 const axios = require('axios');
-const { requireAuth, cookieOpts, clearCookieOpts, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL } = require('../middleware/auth');
+const { requireAuth, cookieOpts, clearCookieOpts, clearAllLegacyCookies, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL } = require('../middleware/auth');
 
 // GET /api/auth/me - Retrieve current user (flat object for frontend compatibility)
 router.get('/me', requireAuth, (req, res) => {
@@ -34,6 +34,9 @@ router.post('/set-session', async (req, res) => {
             return res.status(401).json({ error: "Invalid token" });
         }
 
+        // Clear legacy cookies to prevent shadowing before setting new cookies
+        clearAllLegacyCookies(res);
+
         // Set access_token cookie
         res.cookie('access_token', access_token, cookieOpts(ACCESS_TOKEN_TTL));
 
@@ -50,9 +53,7 @@ router.post('/set-session', async (req, res) => {
 
 // POST /api/auth/clear-session - Hapus cookie secara total
 router.post('/clear-session', (req, res) => {
-    res.clearCookie('access_token', clearCookieOpts());
-    res.clearCookie('refresh_token', clearCookieOpts());
-    res.clearCookie('user_data', { path: '/' }); 
+    clearAllLegacyCookies(res);
     res.json({ message: "Session berhasil dihapus" });
 });
 
@@ -86,6 +87,7 @@ router.post('/signup', async (req, res) => {
             console.log('Profile creation note:', profileError.message);
         }
 
+        clearAllLegacyCookies(res);
         res.cookie('access_token', data.session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
         if (data.session.refresh_token) {
             res.cookie('refresh_token', data.session.refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
@@ -121,6 +123,7 @@ router.post('/login', async (req, res) => {
 
         if (error) throw error;
 
+        clearAllLegacyCookies(res);
         res.cookie('access_token', data.session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
         if (data.session.refresh_token) {
             res.cookie('refresh_token', data.session.refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
@@ -145,9 +148,7 @@ router.post('/logout', async (req, res) => {
     try {
         const token = req.cookies.access_token || req.headers.authorization?.replace('Bearer ', '');
 
-        res.clearCookie('access_token', clearCookieOpts());
-        res.clearCookie('refresh_token', clearCookieOpts());
-        res.clearCookie('user_data', { path: '/' });
+        clearAllLegacyCookies(res);
 
         if (token) {
             await supabase.auth.admin.signOut(token).catch(e => {
@@ -256,14 +257,14 @@ router.post('/refresh', async (req, res) => {
 
         if (error) throw error;
 
+        clearAllLegacyCookies(res);
         res.cookie('access_token', data.session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
         res.cookie('refresh_token', data.session.refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
 
         res.json({ success: true, message: 'Session refreshed successfully' });
     } catch (error) {
         console.error('Refresh Error:', error);
-        res.clearCookie('access_token', clearCookieOpts());
-        res.clearCookie('refresh_token', clearCookieOpts());
+        clearAllLegacyCookies(res);
         res.status(401).json({ error: 'Invalid refresh token' });
     }
 });
@@ -334,6 +335,7 @@ router.get('/google/callback', async (req, res) => {
             }, { onConflict: 'id' });
 
         // FAST GOOGLE AUTH: Set cookies directly at backend, skip frontend callback UI entirely!
+        clearAllLegacyCookies(res);
         res.cookie('access_token', session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
         if (session.refresh_token) {
             res.cookie('refresh_token', session.refresh_token, cookieOpts(REFRESH_TOKEN_TTL));
