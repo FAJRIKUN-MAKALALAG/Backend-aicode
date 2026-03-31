@@ -16,23 +16,41 @@ const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
 
 // Options untuk set cookie
 function cookieOpts(maxAge) {
-    return {
+    const opts = {
         httpOnly: true,
         secure: IS_PROD,
-        sameSite: IS_PROD ? 'none' : 'lax', // 'none' WAJIB untuk cross-subdomain
+        sameSite: IS_PROD ? 'none' : 'lax', // 'none' WAJIB untuk cross-subdomain API & Frontend
         path: '/',
         maxAge,
     };
+    
+    // Explicitly set domain di production agar cookie bersifat first-party
+    // untuk subdomain (api.unklab-aicode.online dan unklab-aicode.online)
+    if (IS_PROD && process.env.BACKEND_URL && process.env.BACKEND_URL.includes('unklab-aicode.online')) {
+        opts.domain = '.unklab-aicode.online';
+    } else if (IS_PROD) {
+        opts.domain = '.unklab-aicode.online'; // Default to this domain for this project
+    }
+    
+    return opts;
 }
 
 // Options untuk clearCookie — HARUS sama persis dengan saat set
 function clearCookieOpts() {
-    return {
+    const opts = {
         httpOnly: true,
         secure: IS_PROD,
         sameSite: IS_PROD ? 'none' : 'lax',
         path: '/',
     };
+
+    if (IS_PROD && process.env.BACKEND_URL && process.env.BACKEND_URL.includes('unklab-aicode.online')) {
+        opts.domain = '.unklab-aicode.online';
+    } else if (IS_PROD) {
+        opts.domain = '.unklab-aicode.online';
+    }
+    
+    return opts;
 }
 
 const ACCESS_TOKEN_TTL  = 8 * 60 * 60 * 1000;       // 8 jam
