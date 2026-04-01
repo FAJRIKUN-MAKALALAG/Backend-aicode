@@ -121,7 +121,25 @@ router.post('/login', async (req, res) => {
             password
         });
 
-        if (error) throw error;
+        if (error) {
+            // Cek apakah user ini terdaftar via Google OAuth (tidak punya password)
+            if (error.message?.toLowerCase().includes('invalid login credentials')) {
+                const { data: userData } = await supabase.auth.admin.listUsers();
+                const existingUser = userData?.users?.find(u => u.email === email);
+                if (existingUser) {
+                    const identities = existingUser.identities || [];
+                    const isGoogleOnly = identities.some(i => i.provider === 'google')
+                        && !identities.some(i => i.provider === 'email');
+                    if (isGoogleOnly) {
+                        return res.status(401).json({
+                            error: 'Akun ini terdaftar via Google. Login dengan tombol "Login with Google", atau klik "Lupa Password" untuk membuat password manual.',
+                            hint: 'google_oauth_user'
+                        });
+                    }
+                }
+            }
+            throw error;
+        }
 
         clearAllLegacyCookies(res);
         res.cookie('access_token', data.session.access_token, cookieOpts(ACCESS_TOKEN_TTL));
@@ -199,7 +217,7 @@ router.post('/forgot-password', async (req, res) => {
         }
 
         const { error } = await supabase.auth.resetPasswordForEmail(email, {
-            redirectTo: `${process.env.FRONTEND_URL || 'https://unklab-aicode.online'}/auth/reset-password`
+            redirectTo: `${process.env.FRONTEND_URL || 'https://unklab-aicode.online'}/reset-password`
         });
 
         if (error) throw error;
