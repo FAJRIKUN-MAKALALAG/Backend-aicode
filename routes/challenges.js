@@ -99,7 +99,7 @@ router.get('/:challengeId', requireAuth, async (req, res) => {
 router.post('/:challengeId/join', requireAuth, async (req, res) => {
     try {
         const { challengeId } = req.params;
-        const { student_name } = req.body;
+        const { student_name } = req.body || {};
         const userId = req.user.id;
 
         // Cek apakah user sudah pernah join soal ini
@@ -108,7 +108,12 @@ router.post('/:challengeId/join', requireAuth, async (req, res) => {
             .select('*')
             .eq('challenge_id', challengeId)
             .eq('user_id', userId)
-            .single();
+            .maybeSingle(); // Pakai maybeSingle agar tidak throw error jika 0 rows
+
+        if (checkError) {
+            console.error('Check Error:', checkError);
+            return res.status(500).json({ error: 'Gagal mengecek status pengerjaan.' });
+        }
 
         if (existingAnswer) {
             // Jika sudah tersubmit/selesai, block
@@ -131,9 +136,13 @@ router.post('/:challengeId/join', requireAuth, async (req, res) => {
                 cheats_detected: 0
             })
             .select()
-            .single();
+            .maybeSingle();
 
-        if (insertError) throw insertError;
+        if (insertError) {
+            console.error('Insert Error:', insertError);
+            return res.status(500).json({ error: 'Gagal membuat lembar jawaban baru. Pastikan kolom student_name sudah dibuat.' });
+        }
+
         res.json({ message: 'Berhasil bergabung.', answer: newAnswer });
 
     } catch (error) {
