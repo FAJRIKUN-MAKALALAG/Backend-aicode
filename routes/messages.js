@@ -20,7 +20,7 @@ async function getUserGeminiKey(supabase, userId) {
 // ─── Helper: generate embedding text → vektor ─────────────────────────────────
 async function generateEmbedding(apiKey, text) {
     const genAI = new GoogleGenerativeAI(apiKey);
-    const embedModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const embedModel = genAI.getGenerativeModel({ model: 'embedding-001' });
     const result = await embedModel.embedContent(text);
     return result.embedding.values;
 }
