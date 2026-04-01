@@ -4,6 +4,27 @@ const { requireAuth } = require('../middleware/auth');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { decrypt } = require('../utils/crypto');
 
+// ─── Helper: ambil & dekripsi API key milik user dari user_secrets ───────────
+async function getUserGeminiKey(supabase, userId) {
+    const { data: keyData } = await supabase
+        .from('user_secrets')
+        .select('encrypted_value, iv')
+        .eq('user_id', userId)
+        .eq('key_name', 'GEMINI_API_KEY')
+        .single();
+
+    if (!keyData) return null;
+    return decrypt(keyData.encrypted_value, keyData.iv);
+}
+
+// ─── Helper: generate embedding text → vektor ─────────────────────────────────
+async function generateEmbedding(apiKey, text) {
+    const genAI = new GoogleGenerativeAI(apiKey);
+    const embedModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+    const result = await embedModel.embedContent(text);
+    return result.embedding.values;
+}
+
 // GET /api/messages/:conversationId
 router.get('/:conversationId', requireAuth, async (req, res) => {
     try {
@@ -36,7 +57,7 @@ router.get('/:conversationId', requireAuth, async (req, res) => {
     }
 });
 
-// POST /api/messages/context (Endpoint pencari memori/vector search)
+// POST /api/messages/context (Vector search — pencari memori RAG)
 router.post('/context', requireAuth, async (req, res) => {
     try {
         const { query } = req.body;
@@ -44,37 +65,42 @@ router.post('/context', requireAuth, async (req, res) => {
 
         if (!query) return res.json({ context: "" });
 
-        // 1. Generate Embedding untuk query pencarian user saat ini
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
-        const result = await embedModel.embedContent(query);
-        const query_embedding = result.embedding.values;
+        // 1. Ambil API key milik user
+        const userApiKey = await getUserGeminiKey(req.supabase, userId);
+        if (!userApiKey) {
+            console.warn(`[CONTEXT] User ${userId} belum punya API key, skip vector search.`);
+            return res.json({ context: "" });
+        }
 
-        // 2. Tembak RPC match_user_chats
+        // 2. Generate embedding dari query user
+        const query_embedding = await generateEmbedding(userApiKey, query);
+
+        // 3. Cari chat yang relevan via RPC match_user_chats
         const { data: matchedChats, error } = await req.supabase.rpc('match_user_chats', {
-            query_embedding: query_embedding,
+            query_embedding,
             match_threshold: 0.5,
             match_count: 5,
             p_user_id: userId
         });
 
         if (error) {
-            console.error('Vector Search Error:', error);
+            console.error('[CONTEXT] Vector Search Error:', error);
             return res.json({ context: "" });
         }
 
-        // 3. Rangkai konteksnya menjadi string format rapi
         if (!matchedChats || matchedChats.length === 0) {
             return res.json({ context: "" });
         }
 
-        const contextText = matchedChats.map(chat => 
+        const contextText = matchedChats.map(chat =>
             `[Waktu chat: ${new Date(chat.created_at).toLocaleString()}] Pesan Terdahulu: "${chat.content}"`
         ).join('\n---\n');
 
+        console.log(`[CONTEXT] Ditemukan ${matchedChats.length} memori relevan untuk user ${userId}`);
         res.json({ context: contextText });
+
     } catch (error) {
-        console.error('Context Endpoint Error:', error);
+        console.error('[CONTEXT] Context Endpoint Error:', error.message);
         res.json({ context: "" }); // Fallback kosong agar gagal tidak memutuskan chat
     }
 });
@@ -89,42 +115,24 @@ router.post('/', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        // Generate embedding menggunakan API key MILIK USER sendiri (dari user_secrets)
+        // Generate embedding menggunakan API key MILIK USER sendiri
         let embedding = null;
         try {
-            // 1. Ambil dan decrypt API key milik user dari DB
-            const { data: keyData } = await req.supabase
-                .from('user_secrets')
-                .select('encrypted_value, iv')
-                .eq('user_id', userId)
-                .eq('key_name', 'GEMINI_API_KEY')
-                .single();
-
-            if (keyData) {
-                const userApiKey = decrypt(keyData.encrypted_value, keyData.iv);
-                // 2. Pakai kunci user untuk generate embedding
-                const genAI = new GoogleGenerativeAI(userApiKey);
-                const embedModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
-                const result = await embedModel.embedContent(content);
-                embedding = result.embedding.values;
-                console.log(`[EMBEDDING] Berhasil generate embedding untuk user ${userId}, role: ${role}`);
+            const userApiKey = await getUserGeminiKey(req.supabase, userId);
+            if (userApiKey) {
+                embedding = await generateEmbedding(userApiKey, content);
+                console.log(`[EMBEDDING] OK — user: ${userId}, role: ${role}`);
             } else {
                 console.warn(`[EMBEDDING] User ${userId} belum punya API key, embedding dilewati.`);
             }
         } catch (embedErr) {
-            // Gagal generate embedding — tetap simpan pesan tanpa embedding
-            // agar chat tidak crash
+            // Tetap simpan pesan meski embedding gagal — chat tidak boleh crash
             console.error('[EMBEDDING] Gagal generate embedding:', embedErr.message);
         }
 
         const { data, error } = await req.supabase
             .from('messages')
-            .insert({ 
-                conversation_id: conversationId, 
-                role, 
-                content,
-                embedding
-            })
+            .insert({ conversation_id: conversationId, role, content, embedding })
             .select()
             .single();
 
