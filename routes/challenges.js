@@ -68,6 +68,16 @@ router.get('/room/:roomCode', requireAuth, async (req, res) => {
         if (error || !data) {
             return res.status(404).json({ error: 'Soal tidak ditemukan atau kode salah.' });
         }
+
+        // Ambil nama pembuat dari tabel profiles
+        const { data: profData } = await req.supabase
+            .from('profiles')
+            .select('username')
+            .eq('id', data.creator_id)
+            .single();
+        
+        data.creator_name = profData ? profData.username : "Author (Unknown)";
+
         res.json(data);
     } catch (error) {
         console.error('Get Challenge by Room Code Error:', error);
@@ -88,6 +98,16 @@ router.get('/:challengeId', requireAuth, async (req, res) => {
         if (error || !data) {
             return res.status(404).json({ error: 'Soal tidak ditemukan.' });
         }
+
+        // Ambil nama pembuat dari tabel profiles
+        const { data: profData } = await req.supabase
+            .from('profiles')
+            .select('username')
+            .eq('id', data.creator_id)
+            .single();
+        
+        data.creator_name = profData ? profData.username : "Author (Unknown)";
+
         res.json(data);
     } catch (error) {
         console.error('Get Challenge by ID Error:', error);
