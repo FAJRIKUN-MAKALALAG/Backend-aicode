@@ -99,6 +99,7 @@ router.get('/:challengeId', requireAuth, async (req, res) => {
 router.post('/:challengeId/join', requireAuth, async (req, res) => {
     try {
         const { challengeId } = req.params;
+        const { student_name } = req.body;
         const userId = req.user.id;
 
         // Cek apakah user sudah pernah join soal ini
@@ -124,6 +125,7 @@ router.post('/:challengeId/join', requireAuth, async (req, res) => {
             .insert({
                 challenge_id: challengeId,
                 user_id: userId,
+                student_name: student_name || "Tanpa Nama",
                 status: 'in_progress',
                 code_content: '',
                 cheats_detected: 0
@@ -195,7 +197,7 @@ router.get('/:challengeId/answers', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak. Anda bukan pembuat soal ini.' });
         }
 
-        // Ambil semua jawaban untuk soal ini, bisa join table profiles nantinya untuk dapat nama user
+        // Ambil semua jawaban untuk soal ini
         const { data: answers, error: answerError } = await req.supabase
             .from('challenge_answers')
             .select('*')
@@ -203,6 +205,7 @@ router.get('/:challengeId/answers', requireAuth, async (req, res) => {
             .order('submitted_at', { ascending: false });
 
         if (answerError) throw answerError;
+
         res.json(answers || []);
     } catch (error) {
         console.error('Get Challenge Answers Error:', error);
