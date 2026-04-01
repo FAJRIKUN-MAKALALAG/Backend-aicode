@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/genai');  // SDK baru untuk embedding
 const { decrypt } = require('../utils/crypto');
 
 // ─── Helper: ambil & dekripsi API key milik user dari user_secrets ───────────
@@ -17,12 +17,14 @@ async function getUserGeminiKey(supabase, userId) {
     return decrypt(keyData.encrypted_value, keyData.iv);
 }
 
-// ─── Helper: generate embedding text → vektor ─────────────────────────────────
+// ─── Helper: generate embedding text → vektor (SDK baru @google/genai) ──────
 async function generateEmbedding(apiKey, text) {
-    const genAI = new GoogleGenerativeAI(apiKey);
-    const embedModel = genAI.getGenerativeModel({ model: 'embedding-001' });
-    const result = await embedModel.embedContent(text);
-    return result.embedding.values;
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.embedContent({
+        model: 'gemini-embedding-001',
+        contents: text,
+    });
+    return response.embeddings[0].values;
 }
 
 // GET /api/messages/:conversationId
