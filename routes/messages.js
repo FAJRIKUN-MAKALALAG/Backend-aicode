@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const { decrypt } = require('../utils/crypto');
 
 // GET /api/messages/:conversationId
 router.get('/:conversationId', requireAuth, async (req, res) => {
@@ -82,22 +83,38 @@ router.post('/context', requireAuth, async (req, res) => {
 router.post('/', requireAuth, async (req, res) => {
     try {
         const { conversationId, role, content } = req.body;
+        const userId = req.user.id;
 
         if (!conversationId || !role || !content) {
             return res.status(400).json({ error: 'Missing required fields' });
         }
 
-        // Generate embedding secara on-the-fly pakai Gemini
+        // Generate embedding menggunakan API key MILIK USER sendiri (dari user_secrets)
         let embedding = null;
         try {
-            const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-            const embedModel = genAI.getGenerativeModel({ model: "text-embedding-004" });
-            const result = await embedModel.embedContent(content);
-            embedding = result.embedding.values;
+            // 1. Ambil dan decrypt API key milik user dari DB
+            const { data: keyData } = await req.supabase
+                .from('user_secrets')
+                .select('encrypted_value, iv')
+                .eq('user_id', userId)
+                .eq('key_name', 'GEMINI_API_KEY')
+                .single();
+
+            if (keyData) {
+                const userApiKey = decrypt(keyData.encrypted_value, keyData.iv);
+                // 2. Pakai kunci user untuk generate embedding
+                const genAI = new GoogleGenerativeAI(userApiKey);
+                const embedModel = genAI.getGenerativeModel({ model: 'text-embedding-004' });
+                const result = await embedModel.embedContent(content);
+                embedding = result.embedding.values;
+                console.log(`[EMBEDDING] Berhasil generate embedding untuk user ${userId}, role: ${role}`);
+            } else {
+                console.warn(`[EMBEDDING] User ${userId} belum punya API key, embedding dilewati.`);
+            }
         } catch (embedErr) {
-            console.error('Failed to generate embedding for message:', embedErr);
-            // Tetap lanjut meskipun gagal agar chat tidak nge-hang,
-            // baris ini biarkan embedding = null (Aman jika kolom sudah terpasang di DB)
+            // Gagal generate embedding — tetap simpan pesan tanpa embedding
+            // agar chat tidak crash
+            console.error('[EMBEDDING] Gagal generate embedding:', embedErr.message);
         }
 
         const { data, error } = await req.supabase
@@ -106,7 +123,7 @@ router.post('/', requireAuth, async (req, res) => {
                 conversation_id: conversationId, 
                 role, 
                 content,
-                embedding // Injeksi Vektornya ke table
+                embedding
             })
             .select()
             .single();
