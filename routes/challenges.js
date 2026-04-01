@@ -198,10 +198,7 @@ router.get('/:challengeId/answers', requireAuth, async (req, res) => {
         // Ambil semua jawaban untuk soal ini, bisa join table profiles nantinya untuk dapat nama user
         const { data: answers, error: answerError } = await req.supabase
             .from('challenge_answers')
-            .select(`
-                *,
-                profiles:user_id ( full_name, role )
-            `)
+            .select('*')
             .eq('challenge_id', challengeId)
             .order('submitted_at', { ascending: false });
 
