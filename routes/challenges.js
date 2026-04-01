@@ -175,11 +175,48 @@ router.post('/:challengeId/join', requireAuth, async (req, res) => {
 router.put('/answers/:answerId/save', requireAuth, async (req, res) => {
     try {
         const { answerId } = req.params;
-        const { code_content, status, cheats_detected } = req.body; // status: 'in_progress' atau 'submitted'
+        let { code_content, status, cheats_detected } = req.body; // status: 'in_progress' atau 'submitted'
         const userId = req.user.id;
 
+        // --- PRODUCTION SECURITY ENHANCEMENT ---
+        // 1. Ambil data jawaban saat ini untuk validasi keamanan server-side
+        const { data: currentAnswer, error: fetchErr } = await req.supabase
+            .from('challenge_answers')
+            .select('status, created_at, challenge_id')
+            .eq('id', answerId)
+            .eq('user_id', userId)
+            .single();
+
+        if (fetchErr || !currentAnswer) {
+            return res.status(404).json({ error: 'Jawaban tidak ditemukan atau akses ditolak.' });
+        }
+
+        // 2. Cegah manipulasi sistem: Jika sudah disubmit, tolak modifikasi apa pun!
+        if (currentAnswer.status === 'submitted') {
+            return res.status(403).json({ error: 'PERINGATAN KEAMANAN: Jawaban sudah di-submit secara final dan terkunci rapat.' });
+        }
+
+        // 3. Validasi Batas Waktu Server-Side (Cegah eksploitasi timer client-side)
+        const { data: challengeData } = await req.supabase
+            .from('challenges')
+            .select('time_limit_minutes')
+            .eq('id', currentAnswer.challenge_id)
+            .single();
+
+        if (challengeData && challengeData.time_limit_minutes) {
+            const startTime = new Date(currentAnswer.created_at).getTime();
+            const now = Date.now();
+            // Berikan toleransi keterlambatan jaringan (latency) sebesar 60 detik
+            const maxAllowedTime = startTime + (challengeData.time_limit_minutes * 60000) + 60000; 
+
+            if (now > maxAllowedTime) {
+                // Paksa jadikan 'submitted' jika terdeteksi melewati batas mutlak server
+                status = 'submitted';
+            }
+        }
+        // ---------------------------------------
+
         // Update ke database
-        // Pakai match user_id sebagai layer keamanan agar tidak bisa edit jawaban orang lain
         const updateData = {
             updated_at: new Date().toISOString()
         };
@@ -200,7 +237,7 @@ router.put('/answers/:answerId/save', requireAuth, async (req, res) => {
             .single();
 
         if (error) {
-            return res.status(404).json({ error: 'Jawaban tidak ditemukan atau akses ditolak.' });
+            return res.status(404).json({ error: 'Jawaban gagal tersimpan.' });
         }
         res.json(data);
     } catch (error) {
