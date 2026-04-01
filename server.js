@@ -26,6 +26,7 @@ const conversationRoutes = require('./routes/conversations');
 const messageRoutes = require('./routes/messages');
 const codeRoutes = require('./routes/code');
 const chatRoutes = require('./routes/chat');
+const challengeRoutes = require('./routes/challenges');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -92,6 +93,7 @@ app.use('/api/conversations', conversationRoutes);
 app.use('/api/messages', messageRoutes);
 app.use('/api/code', codeRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/challenges', challengeRoutes);
 
 // Start server
 app.listen(port, () => {
