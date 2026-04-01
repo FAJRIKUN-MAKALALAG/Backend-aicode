@@ -23,6 +23,7 @@ async function generateEmbedding(apiKey, text) {
     const response = await ai.models.embedContent({
         model: 'gemini-embedding-001',
         contents: text,
+        config: { outputDimensionality: 768 }  // Paksa 768 dim agar kompatibel dgn pgvector HNSW
     });
     return response.embeddings[0].values;
 }
