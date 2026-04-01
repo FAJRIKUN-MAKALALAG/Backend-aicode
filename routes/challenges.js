@@ -279,4 +279,40 @@ router.get('/:challengeId/answers', requireAuth, async (req, res) => {
     }
 });
 
+// 7. DELETE /api/challenges/:challengeId - Menghapus soal (Khusus Creator Soal)
+router.delete('/:challengeId', requireAuth, async (req, res) => {
+    try {
+        const { challengeId } = req.params;
+        const userId = req.user.id;
+
+        // Pastikan yang merequest adalah pembuat soal
+        const { data: challengeData, error: challengeError } = await req.supabase
+            .from('challenges')
+            .select('creator_id')
+            .eq('id', challengeId)
+            .single();
+
+        if (challengeError || !challengeData) {
+            return res.status(404).json({ error: 'Soal tidak ditemukan.' });
+        }
+
+        if (challengeData.creator_id !== userId) {
+            return res.status(403).json({ error: 'Akses ditolak. Anda bukan pembuat soal ini.' });
+        }
+
+        const { error: deleteError } = await req.supabase
+            .from('challenges')
+            .delete()
+            .eq('id', challengeId)
+            .eq('creator_id', userId);
+
+        if (deleteError) throw deleteError;
+
+        res.json({ message: 'Soal berhasil dihapus.' });
+    } catch (error) {
+        console.error('Delete Challenge Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 module.exports = router;
