@@ -5,17 +5,30 @@ const axios = require('axios');
 const { requireAuth, cookieOpts, clearCookieOpts, clearAllLegacyCookies, ACCESS_TOKEN_TTL, REFRESH_TOKEN_TTL } = require('../middleware/auth');
 
 // GET /api/auth/me - Retrieve current user (flat object for frontend compatibility)
-router.get('/me', requireAuth, (req, res) => {
+router.get('/me', requireAuth, async (req, res) => {
     const u = req.user;
+    
+    // Fetch profile data in case it's not in user_metadata
+    let dbAvatar = null;
+    let dbUsername = null;
+    try {
+        const { data } = await supabase.from('profiles').select('avatar_url, username').eq('id', u.id).single();
+        if (data) {
+            dbAvatar = data.avatar_url;
+            dbUsername = data.username;
+        }
+    } catch (e) {}
+
     res.json({
         id:       u.id,
         email:    u.email,
-        username: u.user_metadata?.username
+        username: dbUsername 
+                  || u.user_metadata?.username
                   || u.user_metadata?.full_name
                   || u.user_metadata?.name
                   || u.email?.split('@')[0]
                   || 'User',
-        avatar_url: u.user_metadata?.avatar_url || u.user_metadata?.picture || null
+        avatar_url: u.user_metadata?.avatar_url || u.user_metadata?.picture || dbAvatar || null
     });
 });
 

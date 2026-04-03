@@ -91,7 +91,7 @@ router.get('/:challengeId', requireAuth, async (req, res) => {
         const { challengeId } = req.params;
         const { data, error } = await req.supabase
             .from('challenges')
-            .select('id, title, description, expected_output, time_limit_minutes, creator_id')
+            .select('id, title, description, expected_output, time_limit_minutes, creator_id, room_code')
             .eq('id', challengeId)
             .single();
 
