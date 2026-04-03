@@ -14,7 +14,8 @@ router.get('/me', requireAuth, (req, res) => {
                   || u.user_metadata?.full_name
                   || u.user_metadata?.name
                   || u.email?.split('@')[0]
-                  || 'User'
+                  || 'User',
+        avatar_url: u.user_metadata?.avatar_url || u.user_metadata?.picture || null
     });
 });
 
@@ -51,7 +52,8 @@ router.put('/profile', requireAuth, async (req, res) => {
             user: {
                 id: data.user.id,
                 email: data.user.email,
-                username: data.user.user_metadata.username
+                username: data.user.user_metadata.username,
+                avatar_url: data.user.user_metadata.avatar_url || data.user.user_metadata.picture || null
             }
         });
     } catch (error) {
@@ -139,7 +141,8 @@ router.post('/signup', async (req, res) => {
             user: {
                 id: data.user.id,
                 email: data.user.email,
-                username: data.user.user_metadata.username
+                username: data.user.user_metadata?.username,
+                avatar_url: data.user.user_metadata?.avatar_url || data.user.user_metadata?.picture || null
             },
             message: "Direct cookie auth success"
         });
@@ -193,7 +196,8 @@ router.post('/login', async (req, res) => {
             user: {
                 id: data.user.id,
                 email: data.user.email,
-                username: data.user.user_metadata.username
+                username: data.user.user_metadata.username,
+                avatar_url: data.user.user_metadata.avatar_url || data.user.user_metadata.picture || null
             },
             message: "Direct cookie auth success"
         });
@@ -240,7 +244,8 @@ router.post('/verify', async (req, res) => {
             user: {
                 id: user.id,
                 email: user.email,
-                username: user.user_metadata.username
+                username: user.user_metadata.username,
+                avatar_url: user.user_metadata.avatar_url || user.user_metadata.picture || null
             }
         });
     } catch (error) {
