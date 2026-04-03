@@ -18,6 +18,48 @@ router.get('/me', requireAuth, (req, res) => {
     });
 });
 
+// PUT /api/auth/profile - Update user profile
+router.put('/profile', requireAuth, async (req, res) => {
+    try {
+        const { username } = req.body;
+        const userId = req.user.id;
+
+        if (!username || username.trim() === '') {
+            return res.status(400).json({ error: 'Username is required' });
+        }
+
+        // 1. Update public.profiles table (if exists)
+        try {
+            await supabase
+                .from('profiles')
+                .update({ username, updated_at: new Date().toISOString() })
+                .eq('id', userId);
+        } catch (e) {
+            console.warn('Could not update profile table:', e.message);
+        }
+
+        // 2. Update auth user metadata
+        const { data, error } = await supabase.auth.admin.updateUserById(userId, {
+            user_metadata: { username }
+        });
+
+        if (error) throw error;
+
+        res.json({ 
+            success: true, 
+            message: 'Profile updated successfully',
+            user: {
+                id: data.user.id,
+                email: data.user.email,
+                username: data.user.user_metadata.username
+            }
+        });
+    } catch (error) {
+        console.error('Update Profile Error:', error);
+        res.status(400).json({ error: error.message || 'Failed to update profile' });
+    }
+});
+
 // POST /api/auth/set-session - Ubah token jadi HTTP-Only Cookie secara aman
 router.post('/set-session', async (req, res) => {
     try {
