@@ -118,6 +118,23 @@ router.post('/', async (req, res) => {
             return res.status(403).json({ error: 'Kuesioner sedang tidak aktif. Pengumpulan jawaban telah ditutup.' });
         }
 
+        // Cek apakah email sudah pernah mengisi
+        const userEmail = email.trim().toLowerCase();
+        const { data: existingUsers, error: checkError } = await supabase
+            .from('kuesioner_responses')
+            .select('id')
+            .eq('email', userEmail)
+            .limit(1);
+
+        if (checkError) {
+            console.error('[POST /kuesioner] Supabase check email error:', checkError.message);
+            return res.status(500).json({ error: 'Gagal memvalidasi data user. Silakan coba lagi.' });
+        }
+
+        if (existingUsers && existingUsers.length > 0) {
+            return res.status(400).json({ error: 'Email ini sudah pernah digunakan untuk mengisi kuesioner. Setiap orang hanya dapat mengisi satu kali.' });
+        }
+
         // Hitung total skor
         const totalSkor = Q_KEYS.reduce((sum, key) => sum + answers[key], 0);
 
@@ -126,7 +143,7 @@ router.post('/', async (req, res) => {
             .from('kuesioner_responses')
             .insert({
                 nama: nama.trim(),
-                email: email.trim().toLowerCase(),
+                email: userEmail,
                 answers,
                 total_skor: totalSkor,
                 pesan: pesan ? pesan.trim() : null,
