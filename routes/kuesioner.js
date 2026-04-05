@@ -90,7 +90,7 @@ router.post('/admin/toggle', requireAuth, requireAdmin, async (req, res) => {
 // Public — siapapun bisa submit tanpa login
 router.post('/', async (req, res) => {
     try {
-        const { nama, email, answers } = req.body;
+        const { nama, email, answers, pesan } = req.body;
 
         // Validasi input
         if (!nama || typeof nama !== 'string' || !nama.trim()) {
@@ -129,6 +129,7 @@ router.post('/', async (req, res) => {
                 email: email.trim().toLowerCase(),
                 answers,
                 total_skor: totalSkor,
+                pesan: pesan ? pesan.trim() : null,
             });
 
         if (error) {
