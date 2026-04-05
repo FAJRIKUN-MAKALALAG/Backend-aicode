@@ -27,6 +27,7 @@ const messageRoutes = require('./routes/messages');
 const codeRoutes = require('./routes/code');
 const chatRoutes = require('./routes/chat');
 const challengeRoutes = require('./routes/challenges');
+const kuesionerRoutes = require('./routes/kuesioner');
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -94,6 +95,7 @@ app.use('/api/messages', messageRoutes);
 app.use('/api/code', codeRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/challenges', challengeRoutes);
+app.use('/api/kuesioner', kuesionerRoutes);
 
 // Start server
 app.listen(port, () => {
