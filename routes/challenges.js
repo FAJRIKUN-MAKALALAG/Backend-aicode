@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
 const crypto = require('crypto');
+const supabaseAdmin = require('../config/supabase'); // Service role — bypass RLS untuk operasi admin
 
 // Fungsi bantuan untuk men-generate kode unik (6 karakter alfanumerik)
 function generateRoomCode() {
@@ -353,15 +354,31 @@ router.put('/answers/:answerId/grade', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak. Anda bukan pembuat soal ini.' });
         }
 
-        // Update nilai — hanya kolom 'grade' agar tidak error jika graded_at belum ada di DB
-        const { data, error } = await req.supabase
+        // Gunakan supabaseAdmin (service role) untuk bypass RLS.
+        // req.supabase (user-scoped) akan diblokir RLS karena creator bukan pemilik row jawaban student.
+        const updatePayload = { grade: gradeNum, graded_at: new Date().toISOString() };
+        const { data, error } = await supabaseAdmin
             .from('challenge_answers')
-            .update({ grade: gradeNum })
+            .update(updatePayload)
             .eq('id', answerId)
             .select()
             .single();
 
-        if (error) throw error;
+        if (error) {
+            console.error('Grade DB Error:', error);
+            // Jika kolom graded_at belum ada, coba tanpa field tersebut
+            if (error.message?.includes('graded_at')) {
+                const { data: data2, error: error2 } = await supabaseAdmin
+                    .from('challenge_answers')
+                    .update({ grade: gradeNum })
+                    .eq('id', answerId)
+                    .select()
+                    .single();
+                if (error2) throw error2;
+                return res.json({ success: true, answer: data2 });
+            }
+            throw error;
+        }
         res.json({ success: true, answer: data });
     } catch (error) {
         console.error('Grade Answer Error:', error);
