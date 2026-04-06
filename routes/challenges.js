@@ -9,6 +9,43 @@ function generateRoomCode() {
     return crypto.randomBytes(3).toString('hex').toUpperCase(); // Contoh: 'A1B2C3'
 }
 
+// IMI. POST /api/challenges/upload-image - Upload gambar soal ke Supabase Storage
+// Menerima { base64, mimeType, prefix } dari frontend
+// Menggunakan service_role key (supabaseAdmin) agar bypass RLS Storage
+router.post('/upload-image', requireAuth, async (req, res) => {
+    try {
+        const { base64, mimeType, prefix = 'misc' } = req.body;
+        if (!base64 || !mimeType) {
+            return res.status(400).json({ error: 'base64 dan mimeType wajib diisi.' });
+        }
+
+        // Konversi base64 ke Buffer
+        const buffer = Buffer.from(base64, 'base64');
+        const ext = mimeType.split('/')[1] || 'png';
+        const path = `${prefix}/${Date.now()}_${crypto.randomBytes(4).toString('hex')}.${ext}`;
+
+        // Upload ke Supabase Storage pakai supabaseAdmin (service_role key)
+        const { error: uploadError } = await supabaseAdmin.storage
+            .from('challenge-images')
+            .upload(path, buffer, {
+                contentType: mimeType,
+                upsert: true,
+            });
+
+        if (uploadError) throw uploadError;
+
+        // Ambil public URL
+        const { data } = supabaseAdmin.storage
+            .from('challenge-images')
+            .getPublicUrl(path);
+
+        res.json({ url: data.publicUrl });
+    } catch (error) {
+        console.error('Upload Image Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // 1. POST /api/challenges - Membuat soal/challenge baru
 router.post('/', requireAuth, async (req, res) => {
     try {
@@ -119,6 +156,173 @@ router.get('/my-history', requireAuth, async (req, res) => {
         res.json(answers || []);
     } catch (error) {
         console.error('My History Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ── CHALLENGE QUESTIONS ──────────────────────────────────────────────────────
+
+// Q1. GET /api/challenges/:challengeId/questions - Ambil semua soal dalam ujian
+router.get('/:challengeId/questions', requireAuth, async (req, res) => {
+    try {
+        const { challengeId } = req.params;
+        const { data, error } = await req.supabase
+            .from('challenge_questions')
+            .select('*')
+            .eq('challenge_id', challengeId)
+            .order('nomor', { ascending: true });
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (error) {
+        console.error('Get Questions Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Q2. POST /api/challenges/:challengeId/questions - Tambah soal baru ke ujian
+router.post('/:challengeId/questions', requireAuth, async (req, res) => {
+    try {
+        const { challengeId } = req.params;
+        const { description, description_image_url, expected_output, expected_output_image_url } = req.body;
+        const userId = req.user.id;
+
+        // Pastikan hanya creator yang bisa tambah soal
+        const { data: ch, error: chErr } = await req.supabase
+            .from('challenges')
+            .select('creator_id')
+            .eq('id', challengeId)
+            .single();
+
+        if (chErr || !ch || ch.creator_id !== userId) {
+            return res.status(403).json({ error: 'Akses ditolak.' });
+        }
+
+        // Hitung nomor soal berikutnya
+        const { count } = await req.supabase
+            .from('challenge_questions')
+            .select('id', { count: 'exact', head: true })
+            .eq('challenge_id', challengeId);
+
+        const nomor = (count || 0) + 1;
+
+        const { data, error } = await req.supabase
+            .from('challenge_questions')
+            .insert({
+                challenge_id: challengeId,
+                nomor,
+                description: description || null,
+                description_image_url: description_image_url || null,
+                expected_output: expected_output || null,
+                expected_output_image_url: expected_output_image_url || null,
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.status(201).json(data);
+    } catch (error) {
+        console.error('Add Question Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Q3. PUT /api/challenges/questions/:questionId - Edit soal
+router.put('/questions/:questionId', requireAuth, async (req, res) => {
+    try {
+        const { questionId } = req.params;
+        const { description, description_image_url, expected_output, expected_output_image_url } = req.body;
+        const userId = req.user.id;
+
+        // Ambil challenge_id dari soal, lalu cek creator
+        const { data: q, error: qErr } = await req.supabase
+            .from('challenge_questions')
+            .select('challenge_id')
+            .eq('id', questionId)
+            .single();
+
+        if (qErr || !q) return res.status(404).json({ error: 'Soal tidak ditemukan.' });
+
+        const { data: ch } = await req.supabase
+            .from('challenges')
+            .select('creator_id')
+            .eq('id', q.challenge_id)
+            .single();
+
+        if (!ch || ch.creator_id !== userId) {
+            return res.status(403).json({ error: 'Akses ditolak.' });
+        }
+
+        const { data, error } = await req.supabase
+            .from('challenge_questions')
+            .update({
+                description: description ?? null,
+                description_image_url: description_image_url ?? null,
+                expected_output: expected_output ?? null,
+                expected_output_image_url: expected_output_image_url ?? null,
+            })
+            .eq('id', questionId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) {
+        console.error('Update Question Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// Q4. DELETE /api/challenges/questions/:questionId - Hapus soal
+router.delete('/questions/:questionId', requireAuth, async (req, res) => {
+    try {
+        const { questionId } = req.params;
+        const userId = req.user.id;
+
+        const { data: q } = await req.supabase
+            .from('challenge_questions')
+            .select('challenge_id')
+            .eq('id', questionId)
+            .single();
+
+        if (!q) return res.status(404).json({ error: 'Soal tidak ditemukan.' });
+
+        const { data: ch } = await req.supabase
+            .from('challenges')
+            .select('creator_id')
+            .eq('id', q.challenge_id)
+            .single();
+
+        if (!ch || ch.creator_id !== userId) {
+            return res.status(403).json({ error: 'Akses ditolak.' });
+        }
+
+        const { error } = await req.supabase
+            .from('challenge_questions')
+            .delete()
+            .eq('id', questionId);
+
+        if (error) throw error;
+
+        // Re-nomor soal yang tersisa
+        const { data: remaining } = await req.supabase
+            .from('challenge_questions')
+            .select('id')
+            .eq('challenge_id', q.challenge_id)
+            .order('nomor', { ascending: true });
+
+        if (remaining && remaining.length > 0) {
+            await Promise.all(remaining.map((r, idx) =>
+                req.supabase
+                    .from('challenge_questions')
+                    .update({ nomor: idx + 1 })
+                    .eq('id', r.id)
+            ));
+        }
+
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Delete Question Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
