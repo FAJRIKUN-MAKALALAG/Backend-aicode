@@ -279,6 +279,98 @@ router.get('/:challengeId/answers', requireAuth, async (req, res) => {
     }
 });
 
+// 6.5 PUT /api/challenges/answers/:answerId/grade - Pembuat soal memberi nilai
+router.put('/answers/:answerId/grade', requireAuth, async (req, res) => {
+    try {
+        const { answerId } = req.params;
+        const { grade } = req.body;
+        const userId = req.user.id;
+
+        // Validasi nilai
+        if (grade === undefined || grade === null || isNaN(Number(grade))) {
+            return res.status(400).json({ error: 'Nilai harus berupa angka.' });
+        }
+        const gradeNum = Number(grade);
+        if (gradeNum < 0 || gradeNum > 100) {
+            return res.status(400).json({ error: 'Nilai harus antara 0 dan 100.' });
+        }
+
+        // Ambil jawaban, lalu cek apakah user adalah creator soalnya
+        const { data: answerData, error: ansErr } = await req.supabase
+            .from('challenge_answers')
+            .select('challenge_id')
+            .eq('id', answerId)
+            .single();
+
+        if (ansErr || !answerData) {
+            return res.status(404).json({ error: 'Jawaban tidak ditemukan.' });
+        }
+
+        const { data: challengeData, error: chalErr } = await req.supabase
+            .from('challenges')
+            .select('creator_id')
+            .eq('id', answerData.challenge_id)
+            .single();
+
+        if (chalErr || !challengeData || challengeData.creator_id !== userId) {
+            return res.status(403).json({ error: 'Akses ditolak. Anda bukan pembuat soal ini.' });
+        }
+
+        // Update nilai
+        const { data, error } = await req.supabase
+            .from('challenge_answers')
+            .update({ grade: gradeNum, graded_at: new Date().toISOString() })
+            .eq('id', answerId)
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json({ success: true, answer: data });
+    } catch (error) {
+        console.error('Grade Answer Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 6.6 GET /api/challenges/my-history - Riwayat ujian untuk siswa yang login
+router.get('/my-history', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        // Ambil semua jawaban milik user ini, beserta detail soalnya
+        const { data: answers, error } = await req.supabase
+            .from('challenge_answers')
+            .select(`
+                id,
+                status,
+                grade,
+                graded_at,
+                submitted_at,
+                updated_at,
+                created_at,
+                student_name,
+                cheats_detected,
+                challenge_id,
+                challenges (
+                    id,
+                    title,
+                    description,
+                    room_code,
+                    time_limit_minutes
+                )
+            `)
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+
+        res.json(answers || []);
+    } catch (error) {
+        console.error('My History Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // 7. DELETE /api/challenges/:challengeId - Menghapus soal (Khusus Creator Soal)
 router.delete('/:challengeId', requireAuth, async (req, res) => {
     try {
