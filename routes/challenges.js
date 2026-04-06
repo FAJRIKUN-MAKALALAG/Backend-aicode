@@ -85,7 +85,44 @@ router.get('/room/:roomCode', requireAuth, async (req, res) => {
     }
 });
 
-// 3.5 GET /api/challenges/:challengeId - Mendapatkan detail soal berdasarkan ID
+// 3.5 GET /api/challenges/my-history - Riwayat ujian untuk user yang login
+// HARUS didefinisikan SEBELUM /:challengeId agar tidak konflik route di Express!
+router.get('/my-history', requireAuth, async (req, res) => {
+    try {
+        const userId = req.user.id;
+
+        const { data: answers, error } = await req.supabase
+            .from('challenge_answers')
+            .select(`
+                id,
+                status,
+                grade,
+                submitted_at,
+                updated_at,
+                created_at,
+                student_name,
+                cheats_detected,
+                challenge_id,
+                challenges (
+                    id,
+                    title,
+                    description,
+                    room_code,
+                    time_limit_minutes
+                )
+            `)
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(answers || []);
+    } catch (error) {
+        console.error('My History Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 3.6 GET /api/challenges/:challengeId - Mendapatkan detail soal berdasarkan ID
 router.get('/:challengeId', requireAuth, async (req, res) => {
     try {
         const { challengeId } = req.params;
@@ -316,10 +353,10 @@ router.put('/answers/:answerId/grade', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak. Anda bukan pembuat soal ini.' });
         }
 
-        // Update nilai
+        // Update nilai — hanya kolom 'grade' agar tidak error jika graded_at belum ada di DB
         const { data, error } = await req.supabase
             .from('challenge_answers')
-            .update({ grade: gradeNum, graded_at: new Date().toISOString() })
+            .update({ grade: gradeNum })
             .eq('id', answerId)
             .select()
             .single();
@@ -332,44 +369,8 @@ router.put('/answers/:answerId/grade', requireAuth, async (req, res) => {
     }
 });
 
-// 6.6 GET /api/challenges/my-history - Riwayat ujian untuk siswa yang login
-router.get('/my-history', requireAuth, async (req, res) => {
-    try {
-        const userId = req.user.id;
-
-        // Ambil semua jawaban milik user ini, beserta detail soalnya
-        const { data: answers, error } = await req.supabase
-            .from('challenge_answers')
-            .select(`
-                id,
-                status,
-                grade,
-                graded_at,
-                submitted_at,
-                updated_at,
-                created_at,
-                student_name,
-                cheats_detected,
-                challenge_id,
-                challenges (
-                    id,
-                    title,
-                    description,
-                    room_code,
-                    time_limit_minutes
-                )
-            `)
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-
-        res.json(answers || []);
-    } catch (error) {
-        console.error('My History Error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
+// 6.6 GET /api/challenges/my-history - dipindah ke atas (lihat route 3.5)
+// Route ini sengaja dihapus dari sini agar tidak duplikat
 
 // 7. DELETE /api/challenges/:challengeId - Menghapus soal (Khusus Creator Soal)
 router.delete('/:challengeId', requireAuth, async (req, res) => {
