@@ -198,15 +198,17 @@ router.post('/:challengeId/questions', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak.' });
         }
 
-        // Hitung nomor soal berikutnya
-        const { count } = await req.supabase
+        // Hitung nomor soal berikutnya (pakai supabaseAdmin agar tidak kena RLS)
+        const { count } = await supabaseAdmin
             .from('challenge_questions')
             .select('id', { count: 'exact', head: true })
             .eq('challenge_id', challengeId);
 
         const nomor = (count || 0) + 1;
 
-        const { data, error } = await req.supabase
+        // INSERT pakai supabaseAdmin (service role) — bypass RLS
+        // Creator sudah divalidasi di atas, aman menggunakan service role di sini
+        const { data, error } = await supabaseAdmin
             .from('challenge_questions')
             .insert({
                 challenge_id: challengeId,
@@ -253,7 +255,8 @@ router.put('/questions/:questionId', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak.' });
         }
 
-        const { data, error } = await req.supabase
+        // UPDATE pakai supabaseAdmin (service role) — bypass RLS
+        const { data, error } = await supabaseAdmin
             .from('challenge_questions')
             .update({
                 description: description ?? null,
@@ -297,15 +300,16 @@ router.delete('/questions/:questionId', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak.' });
         }
 
-        const { error } = await req.supabase
+        // DELETE pakai supabaseAdmin (service role) — bypass RLS
+        const { error } = await supabaseAdmin
             .from('challenge_questions')
             .delete()
             .eq('id', questionId);
 
         if (error) throw error;
 
-        // Re-nomor soal yang tersisa
-        const { data: remaining } = await req.supabase
+        // Re-nomor soal yang tersisa (juga pakai supabaseAdmin)
+        const { data: remaining } = await supabaseAdmin
             .from('challenge_questions')
             .select('id')
             .eq('challenge_id', q.challenge_id)
@@ -313,7 +317,7 @@ router.delete('/questions/:questionId', requireAuth, async (req, res) => {
 
         if (remaining && remaining.length > 0) {
             await Promise.all(remaining.map((r, idx) =>
-                req.supabase
+                supabaseAdmin
                     .from('challenge_questions')
                     .update({ nomor: idx + 1 })
                     .eq('id', r.id)
