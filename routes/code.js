@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
+const supabaseAdmin = require('../config/supabase'); // Tambahkan service role untuk public access
 
 // GET /api/code/:userId
 router.get('/:userId', requireAuth, async (req, res) => {
@@ -127,6 +128,31 @@ router.delete('/:id', requireAuth, async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         console.error('Delete Code Snippet Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/code/share/:id (Public endpoint untuk share link)
+router.get('/share/:id', async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        // Menggunakan supabaseAdmin agar bisa diakses public walau RLS aktif
+        const { data, error } = await supabaseAdmin
+            .from('code_snippets')
+            .select('id, title, code_content, language, created_at')
+            .eq('id', id)
+            .single();
+
+        if (error) {
+            if (error.code === 'PGRST116') {
+                 return res.status(404).json({ error: 'Code snippet tidak ditemukan' });
+            }
+            throw error;
+        }
+        res.json(data);
+    } catch (error) {
+        console.error('Get Shared Snippet Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
