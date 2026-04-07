@@ -80,7 +80,7 @@ app.get('/', (req, res) => {
 // Supabase public config — kirim anon key ke frontend agar bisa init Supabase client
 // Prioritas: SUPABASE_ANON_KEY (jika ada) → fallback ke SUPABASE_KEY (biasanya service role, tapi aman untuk dibaca frontend jika memang anon)
 app.get('/api/config/supabase', (req, res) => {
-    const anonKey = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+    const anonKey = (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || '').trim();
     if (!anonKey) {
         return res.status(500).json({ error: 'Supabase anon key not configured' });
     }
