@@ -40,17 +40,22 @@ async function requireAdmin(req, res, next) {
 
 // ─── Helper: ambil status kuesioner dari DB ──────────────────────────────────
 async function getKuesionerStatus() {
-    const { data } = await supabase
+    const { data, error } = await supabase
         .from('kuesioner_settings')
         .select('is_active')
         .eq('id', 1)
         .single();
+        
+    if (error && error.code !== 'PGRST116') {
+        console.warn('[getKuesionerStatus] Supabase warning:', error.message);
+    }
     return data?.is_active ?? false;
 }
 
 // ─── GET /api/kuesioner/status ───────────────────────────────────────────────
 // Public — frontend cek apakah kuesioner sedang aktif atau tidak
 router.get('/status', async (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     try {
         const isActive = await getKuesionerStatus();
         res.json({ is_active: isActive });
@@ -75,14 +80,14 @@ router.post('/admin/toggle', requireAuth, requireAdmin, async (req, res) => {
 
         if (error) {
             console.error('[POST /admin/toggle] Supabase error:', error.message);
-            return res.status(500).json({ error: 'Gagal mengubah status kuesioner.' });
+            return res.status(500).json({ error: 'Gagal mengubah status kuesioner.', details: error.message });
         }
 
         console.log(`[POST /admin/toggle] Kuesioner status → ${newStatus ? 'AKTIF' : 'NONAKTIF'}`);
         res.json({ success: true, is_active: newStatus });
     } catch (e) {
         console.error('[POST /admin/toggle] Unexpected error:', e.message);
-        res.status(500).json({ error: 'Server error.' });
+        res.status(500).json({ error: 'Server error.', details: e.message });
     }
 });
 
@@ -105,11 +110,16 @@ router.post('/', async (req, res) => {
 
         // Validasi semua 10 pertanyaan terisi dengan nilai 1-5
         const Q_KEYS = ['q1','q2','q3','q4','q5','q6','q7','q8','q9','q10'];
+        const validAnswers = {};
         for (const key of Q_KEYS) {
-            const val = answers[key];
-            if (!val || typeof val !== 'number' || val < 1 || val > 5 || !Number.isInteger(val)) {
+            let val = answers[key];
+            if (typeof val === 'string') {
+                val = parseInt(val, 10);
+            }
+            if (val === undefined || val === null || isNaN(val) || val < 1 || val > 5 || !Number.isInteger(val)) {
                 return res.status(400).json({ error: `Jawaban untuk ${key} tidak valid. Nilai harus 1-5.` });
             }
+            validAnswers[key] = val;
         }
 
         // Cek apakah kuesioner sedang aktif
@@ -136,7 +146,7 @@ router.post('/', async (req, res) => {
         }
 
         // Hitung total skor
-        const totalSkor = Q_KEYS.reduce((sum, key) => sum + answers[key], 0);
+        const totalSkor = Q_KEYS.reduce((sum, key) => sum + validAnswers[key], 0);
 
         // Simpan ke Supabase
         const { error } = await supabase
@@ -144,7 +154,7 @@ router.post('/', async (req, res) => {
             .insert({
                 nama: nama.trim(),
                 email: userEmail,
-                answers,
+                answers: validAnswers,
                 total_skor: totalSkor,
                 pesan: pesan ? pesan.trim() : null,
             });
@@ -166,6 +176,7 @@ router.post('/', async (req, res) => {
 // ─── GET /api/kuesioner/admin/stats ─────────────────────────────────────────
 // Admin only — statistik lengkap + rekap per pertanyaan
 router.get('/admin/stats', requireAuth, requireAdmin, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     try {
         const { data, error } = await supabase
             .from('kuesioner_responses')
@@ -219,6 +230,7 @@ router.get('/admin/stats', requireAuth, requireAdmin, async (req, res) => {
 // ─── GET /api/kuesioner/admin/responses ─────────────────────────────────────
 // Admin only — semua data responden individual
 router.get('/admin/responses', requireAuth, requireAdmin, async (req, res) => {
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     try {
         const { data, error } = await supabase
             .from('kuesioner_responses')

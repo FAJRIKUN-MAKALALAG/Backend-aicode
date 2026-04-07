@@ -4,10 +4,10 @@ Dokumen ini berisi sekumpulan kode PlantUML untuk membuat Activity Diagram pada 
 
 ---
 
-## 1. Registrasi Akun (Register)
+## 1. Autentikasi (Register & Login)
 
 ```plantuml
-@startuml Activity_Register
+@startuml Activity_Autentikasi
 skinparam backgroundColor #FFFFFF
 skinparam ActivityBackgroundColor #EAF4FF
 skinparam ActivityBorderColor #2E86C1
@@ -16,94 +16,59 @@ skinparam SwimlaneTitleBackgroundColor #D6EAF8
 
 |Pengguna|
 start
-:Membuka halaman web;
-:Memilih menu Registrasi;
-:Mengisi form (Nama, Email, Password);
-:Menekan tombol "Daftar";
-
-|Sistem|
-:Menerima payload request pendaftaran;
-:Mengecek ketersediaan Email di Database;
-if (Email sudah ada?) then (Ya)
-  :Mengembalikan pesan Error;
-  |Pengguna|
-  :Menerima peringatan "Email sudah digunakan";
-  stop
-else (Tidak)
-  |Sistem|
-  :Melakukan enkripsi/Hashing pada Password;
-  :Menyimpan data akun baru ke Database;
-  :Mengembalikan status respons 201 (Created);
-  :Mengalihkan pengguna ke halaman Login;
-  |Pengguna|
-  :Melihat pesan sukses & form Login;
-  stop
-endif
-@enduml
-```
-
----
-
-## 2. Masuk Sistem (Login)
-
-```plantuml
-@startuml Activity_Login
-skinparam backgroundColor #FFFFFF
-skinparam ActivityBackgroundColor #EAF4FF
-skinparam ActivityBorderColor #2E86C1
-skinparam SwimlaneBorderColor #1A5276
-skinparam SwimlaneTitleBackgroundColor #D6EAF8
-
-|Pengguna|
-start
-:Membuka halaman Login;
-if (Pilih Metode Login?) then (Manual: Email & Password)
-  :Mengisi Email dan Password;
-  :Menekan tombol "Masuk";
+:Membuka halaman Autentikasi;
+if (Metode Autentikasi?) then (Manual: Form Email)
+  :Mengisi form pendaftaran atau masuk
+  (Nama, Email, Password) atau (Email, Password);
+  :Menekan tombol "Daftar" atau "Masuk";
 
   |Sistem|
-  :Menerima request HTTP POST (/api/auth/login);
-  :Mencari email di Database;
-  if (Kredensial valid?) then (Tidak)
-    :Mengirim pesan Error;
+  :Menerima payload request ke Backend;
+  :Mengecek ketersediaan atau validitas data;
+  if (Input Valid & Sesuai?) then (Tidak)
+    :Mengembalikan respons Error API;
     |Pengguna|
-    :Melihat notifikasi gagal;
+    :Muncul notifikasi error
+    (Email terdaftar / Sandi salah);
     stop
   else (Ya)
+    |Sistem|
+    :Simpan akun baru (Jika Daftar)
+    Atau verifikasi kredensial (Jika Masuk);
     :Membuat Access Token (JWT);
   endif
-else (OAuth: Google Login)
+else (OAuth: Google)
   |Pengguna|
-  :Menekan tombol "Masuk dengan Google";
+  :Menekan tombol "Lanjutkan dengan Google";
 
   |Sistem|
   :Mengarahkan ke halaman OAuth Google;
 
   |Pengguna|
-  :Memilih akun & memberikan izin;
+  :Memilih akun & mengizinkan akses profil;
 
   |Sistem|
-  :Menerima redirect di callback (/api/auth/google/callback);
-  :Memverifikasi profil dari Google;
-  :Melakukan Upsert data User ke Database;
+  :Menerima redirect (/api/auth/google/callback);
+  :Memverifikasi data profil dari Google;
+  :Sinkronisasi (Otomatis daftar jika baru/masuk jika ada);
   :Membuat Access Token (JWT);
 endif
 
 |Sistem|
 :Mengirim Token JWT sebagai respons sukses;
-:Menyimpan Token di LocalStorage/Cookies;
-:Mengubah status otentikasi menjadi aktif;
-:Mengalihkan (Redirect) ke halaman Utama;
+:Menyimpan Token (LocalStorage/Cookies);
+:Mengubah status otentikasi aktif;
+:Redirect ke halaman Dasbor;
 
 |Pengguna|
-:Berhasil masuk dan melihat antarmuka Dasbor;
+:Berhasil masuk ke antarmuka Dasbor;
 stop
 @enduml
 ```
 
 ---
 
-## 3. Lupa Kata Sandi (Forgot Password)
+## 2. Lupa Kata Sandi (Forgot Password)
 
 ```plantuml
 @startuml Activity_ForgotPassword
@@ -159,7 +124,7 @@ stop
 
 ---
 
-## 4. Code Editor (Menulis & Eksekusi Python)
+## 3. Code Editor (Menulis & Eksekusi Python)
 
 ```plantuml
 @startuml Activity_CodeEditor
@@ -201,7 +166,7 @@ stop
 
 ---
 
-## 5. AI Chat (Percakapan Asisten AI)
+## 4. AI Chat (Percakapan Asisten AI)
 
 ```plantuml
 @startuml Activity_AIChat
@@ -235,7 +200,7 @@ stop
 
 ---
 
-## 6. AI Debug (Debugging Error Otomatis)
+## 5. AI Debug (Debugging Error Otomatis)
 
 ```plantuml
 @startuml Activity_AIDebug
@@ -269,7 +234,7 @@ stop
 
 ---
 
-## 7. AI Fallback (Failover Cadangan)
+## 6. AI Fallback (Failover Cadangan)
 
 ```plantuml
 @startuml Activity_AIFallback
@@ -304,7 +269,7 @@ stop
 
 ---
 
-## 8. Keluar Sistem (Logout)
+## 7. Keluar Sistem (Logout)
 
 ```plantuml
 @startuml Activity_Logout
@@ -335,63 +300,123 @@ stop
 
 ---
 
-## 9. Use Case Diagram: Autentikasi (Register & Login)
+## 8. Use Case Diagram: Autentikasi (Register & Login)
 
 ```plantuml
-@startuml UseCase_Auth_Flow_Clean
+@startuml UseCase_Auth_Flow
 left to right direction
 skinparam packageStyle rectangle
 skinparam shadowing false
 
 ' ================= ACTORS =================
 actor "Pengguna" as user
-actor "Google OAuth" as google <<System>>
-actor "Auth Server" as server <<System>>
+actor "Google" as google <<System>>
 
 ' ================= SYSTEM =================
-rectangle "AI Code Editor - Auth System" {
+rectangle "AI Code Editor - Sistem Autentikasi" {
+  
+  usecase "Melakukan Autentikasi (Masuk & Daftar)" as UC_Auth
+  usecase "Daftar / Masuk Manual" as UC_Manual
+  usecase "Daftar / Masuk via Google" as UC_Google
 
-  ' MAIN ACTIONS
-  usecase "Register" as UC_Register
-  usecase "Login Manual" as UC_Login_Manual
-  usecase "Login dengan Google" as UC_Login_Google
-
-  ' REGISTER FLOW
-  usecase "Input Nama, Email, Password" as UC_Input_Register
-  usecase "Kirim Data ke Server" as UC_Send_Register
-
-  ' LOGIN MANUAL FLOW
-  usecase "Input Email & Password" as UC_Input_Login
-  usecase "Kirim Kredensial ke Server" as UC_Send_Login
-
-  ' GOOGLE LOGIN FLOW
-  usecase "Pilih Akun Google" as UC_Select_Google
-  usecase "Proses OAuth" as UC_OAuth
-  usecase "Kirim Data ke Server (Sync User)" as UC_Send_Google
 }
 
-' ================= USER =================
-user --> UC_Register
-user --> UC_Login_Manual
-user --> UC_Login_Google
+' ================= RELATIONS =================
+user --> UC_Auth
 
-' ================= REGISTER =================
-UC_Register ..> UC_Input_Register : <<include>>
-UC_Register ..> UC_Send_Register : <<include>>
-UC_Send_Register --> server
+UC_Auth <|-- UC_Manual
+UC_Auth <|-- UC_Google
 
-' ================= LOGIN MANUAL =================
-UC_Login_Manual ..> UC_Input_Login : <<include>>
-UC_Login_Manual ..> UC_Send_Login : <<include>>
-UC_Send_Login --> server
+UC_Google --> google : Minta Otorisasi Akses
+@enduml
+```
 
-' ================= GOOGLE LOGIN =================
-UC_Login_Google ..> UC_Select_Google : <<include>>
-UC_Login_Google ..> UC_OAuth : <<include>>
-UC_Login_Google ..> UC_Send_Google : <<include>>
+---
 
-UC_OAuth --> google
-UC_Send_Google --> server
+## 9. Use Case Diagram: Code Editor
 
+```plantuml
+@startuml UseCase_CodeEditor
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+' ================= ACTORS =================
+actor "Pengguna" as user
+
+' ================= SYSTEM =================
+rectangle "AI Code Editor - Workspace" {
+  usecase "Menulis & Mengedit Kode" as UC_Write
+  usecase "Menjalankan Kode (Run)" as UC_Run
+  usecase "Melihat Output Eksekusi" as UC_Terminal
+}
+
+' ================= RELATIONS =================
+user --> UC_Write
+user --> UC_Run
+user --> UC_Terminal
+
+UC_Run ..> UC_Write : <<include>>
+UC_Terminal ..> UC_Run : <<include>>
+@enduml
+```
+
+---
+
+## 10. Use Case Diagram: AI Chat
+
+```plantuml
+@startuml UseCase_AIChat
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+' ================= ACTORS =================
+actor "Pengguna" as user
+
+' ================= SYSTEM =================
+rectangle "AI Code Editor - AI Chat" {
+  usecase "Membuka Panel Chat AI" as UC_Open
+  usecase "Mengirim Prompt Pertanyaan" as UC_Send
+  usecase "Berinteraksi dengan Asisten AI" as UC_Chat
+  usecase "Membaca Respon AI" as UC_Receive
+}
+
+' ================= RELATIONS =================
+user --> UC_Chat
+
+UC_Chat ..> UC_Open : <<include>>
+UC_Chat ..> UC_Send : <<include>>
+UC_Receive ..> UC_Chat : <<extend>>
+@enduml
+```
+
+---
+
+## 11. Use Case Diagram: AI Debug
+
+```plantuml
+@startuml UseCase_AIDebug
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+' ================= ACTORS =================
+actor "Pengguna" as user
+
+' ================= SYSTEM =================
+rectangle "AI Code Editor - AI Debug" {
+  usecase "Mendapati Error di Terminal" as UC_Error
+  usecase "Menganalisa Bug (Fix with AI)" as UC_Debug
+  usecase "Menyalin Perbaikan Kode" as UC_Copy
+}
+
+' ================= RELATIONS =================
+user --> UC_Error
+user --> UC_Debug
+user --> UC_Copy
+
+UC_Debug .> UC_Error : <<extend>>
+UC_Copy ..> UC_Debug : <<include>>
 @enduml
 ```
