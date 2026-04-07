@@ -11,8 +11,8 @@ const IS_PROD = process.env.NODE_ENV === 'production'
 console.log(`[auth.js] IS_PROD = ${IS_PROD} (NODE_ENV=${process.env.NODE_ENV}, BACKEND_URL=${process.env.BACKEND_URL})`);
 
 // Anon key untuk client user-scoped (RLS aktif, aman)
-const SUPABASE_URL  = process.env.SUPABASE_URL;
-const SUPABASE_ANON = process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY;
+const SUPABASE_URL  = (process.env.SUPABASE_URL || '').trim();
+const SUPABASE_ANON = (process.env.SUPABASE_ANON_KEY || process.env.SUPABASE_KEY || '').trim();
 
 // Options untuk set cookie
 function cookieOpts(maxAge) {
