@@ -33,6 +33,7 @@ pipeline {
                 withCredentials([
                     string(credentialsId: 'SUPABASE_URL',    variable: 'SUPA_URL'),
                     string(credentialsId: 'SUPABASE_KEY',    variable: 'SUPA_KEY'),
+                    string(credentialsId: 'SUPABASE_SERVICE_ROLE_KEY', variable: 'SUPA_SERVICE_ROLE'),
                     string(credentialsId: 'ENCRYPTION_KEY',  variable: 'ENC_KEY'),
                     string(credentialsId: 'GROQ_API_KEY',    variable: 'GROQ_KEY'),
                     string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'SUPA_ANON_KEY'),
@@ -45,6 +46,7 @@ PORT=${BACKEND_PORT}
 NODE_ENV=${NODE_ENV}
 SUPABASE_URL=${SUPA_URL}
 SUPABASE_KEY=${SUPA_KEY}
+SUPABASE_SERVICE_ROLE_KEY=${SUPA_SERVICE_ROLE}
 ENCRYPTION_KEY=${ENC_KEY}
 GROQ_API_KEY=${GROQ_KEY}
 SUPABASE_ANON_KEY=${SUPA_ANON_KEY}
