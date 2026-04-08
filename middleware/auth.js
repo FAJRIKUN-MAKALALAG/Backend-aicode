@@ -121,7 +121,7 @@ async function requireAuth(req, res, next) {
 
         // Step 1: Validasi access_token (stateless, concurrent-safe)
         if (token) {
-            console.log(`[requireAuth] Token is truthy! Type: ${typeof token}, Length: ${token.length}, Value starts with: ${token.substring(0, 15)}...`);
+            // console.log(`[requireAuth] Token is truthy! Type: ${typeof token}, Length: ${token.length}, Value starts with: ${token.substring(0, 15)}...`);
             const { data, error } = await supabaseAdmin.auth.getUser(token);
             if (!error && data?.user) {
                 user = data.user;
