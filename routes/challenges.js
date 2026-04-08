@@ -49,7 +49,7 @@ router.post('/upload-image', requireAuth, async (req, res) => {
 // 1. POST /api/challenges - Membuat soal/challenge baru
 router.post('/', requireAuth, async (req, res) => {
     try {
-        const { title, description, expected_output, time_limit_minutes } = req.body;
+        const { title, description, expected_output, time_limit_minutes, max_tab_switches } = req.body;
         const userId = req.user.id;
         let roomCode = generateRoomCode();
 
@@ -62,6 +62,7 @@ router.post('/', requireAuth, async (req, res) => {
                 description,
                 expected_output,
                 time_limit_minutes,
+                max_tab_switches: max_tab_switches || 2, // Default max tab switches
                 room_code: roomCode
             })
             .select()
@@ -99,7 +100,7 @@ router.get('/room/:roomCode', requireAuth, async (req, res) => {
         const { roomCode } = req.params;
         const { data, error } = await req.supabase
             .from('challenges')
-            .select('id, title, description, expected_output, time_limit_minutes, creator_id')
+            .select('id, title, description, expected_output, time_limit_minutes, creator_id, max_tab_switches')
             .eq('room_code', roomCode)
             .single();
 
@@ -139,6 +140,7 @@ router.get('/my-history', requireAuth, async (req, res) => {
                 updated_at,
                 created_at,
                 student_name,
+                teacher_comment,
                 cheats_detected,
                 challenge_id,
                 challenges (
@@ -336,7 +338,7 @@ router.get('/:challengeId', requireAuth, async (req, res) => {
         const { challengeId } = req.params;
         const { data, error } = await req.supabase
             .from('challenges')
-            .select('id, title, description, expected_output, time_limit_minutes, creator_id, room_code')
+            .select('id, title, description, expected_output, time_limit_minutes, creator_id, room_code, max_tab_switches')
             .eq('id', challengeId)
             .single();
 
@@ -381,8 +383,45 @@ router.post('/:challengeId/join', requireAuth, async (req, res) => {
         }
 
         if (existingAnswer) {
-            // Jika sudah tersubmit/selesai, block
+            // Jika sudah tersubmit/selesai, block KECUALI ada soal baru
             if (existingAnswer.status === 'submitted') {
+                // Cek apakah ada soal yang ditambahkan setelah user mensubmit
+                const submitTime = existingAnswer.submitted_at 
+                    ? new Date(existingAnswer.submitted_at) 
+                    : new Date(existingAnswer.updated_at);
+                
+                const { data: latestQuestion } = await req.supabase
+                    .from('challenge_questions')
+                    .select('created_at')
+                    .eq('challenge_id', challengeId)
+                    .order('created_at', { ascending: false })
+                    .limit(1)
+                    .single();
+
+                if (latestQuestion && latestQuestion.created_at) {
+                    const latestQuestionTime = new Date(latestQuestion.created_at);
+                    if (latestQuestionTime > submitTime) {
+                        // Buka kembali ujian ke status in_progress dan reset waktu mulai (created_at)
+                        const { data: updatedAnswer, error: updateErr } = await req.supabase
+                            .from('challenge_answers')
+                            .update({ 
+                                status: 'in_progress', 
+                                submitted_at: null,
+                                created_at: new Date().toISOString() // Reset timer
+                            })
+                            .eq('id', existingAnswer.id)
+                            .select()
+                            .single();
+                        
+                        if (!updateErr) {
+                            return res.json({ 
+                                message: 'Ada soal baru ditambahkan. Melanjutkan pengerjaan...', 
+                                answer: updatedAnswer 
+                            });
+                        }
+                    }
+                }
+
                 return res.status(403).json({ error: 'Anda sudah pernah mengerjakan dan mensubmit jawaban untuk soal ini.' });
             }
             // Jika masih in_progress, kembalikan data existing (lanjutkan draft)
@@ -528,7 +567,7 @@ router.get('/:challengeId/answers', requireAuth, async (req, res) => {
 router.put('/answers/:answerId/grade', requireAuth, async (req, res) => {
     try {
         const { answerId } = req.params;
-        const { grade } = req.body;
+        const { grade, teacher_comment } = req.body;
         const userId = req.user.id;
 
         // Validasi nilai
@@ -563,6 +602,8 @@ router.put('/answers/:answerId/grade', requireAuth, async (req, res) => {
 
         // Gunakan req.supabase (dengan memanfaatkan RLS Policy agar bisa di-update oleh sang pembuat)
         const updatePayload = { grade: gradeNum, graded_at: new Date().toISOString() };
+        if (teacher_comment !== undefined) updatePayload.teacher_comment = teacher_comment;
+
         const { data, error } = await req.supabase
             .from('challenge_answers')
             .update(updatePayload)
@@ -574,9 +615,12 @@ router.put('/answers/:answerId/grade', requireAuth, async (req, res) => {
             console.error('Grade DB Error:', error);
             // Jika kolom graded_at belum ada, coba tanpa field tersebut
             if (error.message?.includes('graded_at')) {
+                const fallbackPayload = { grade: gradeNum };
+                if (teacher_comment !== undefined) fallbackPayload.teacher_comment = teacher_comment;
+
                 const { data: data2, error: error2 } = await req.supabase
                     .from('challenge_answers')
-                    .update({ grade: gradeNum })
+                    .update(fallbackPayload)
                     .eq('id', answerId)
                     .select()
                     .single();
