@@ -198,17 +198,16 @@ router.post('/:challengeId/questions', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak.' });
         }
 
-        // Hitung nomor soal berikutnya (pakai supabaseAdmin agar tidak kena RLS)
-        const { count } = await supabaseAdmin
+        // Hitung nomor soal berikutnya (pakai req.supabase agar sesuai konteks user pembuat soal)
+        const { count } = await req.supabase
             .from('challenge_questions')
             .select('id', { count: 'exact', head: true })
             .eq('challenge_id', challengeId);
 
         const nomor = (count || 0) + 1;
 
-        // INSERT pakai supabaseAdmin (service role) — bypass RLS
-        // Creator sudah divalidasi di atas, aman menggunakan service role di sini
-        const { data, error } = await supabaseAdmin
+        // INSERT pakai req.supabase (native RLS)
+        const { data, error } = await req.supabase
             .from('challenge_questions')
             .insert({
                 challenge_id: challengeId,
@@ -255,8 +254,8 @@ router.put('/questions/:questionId', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak.' });
         }
 
-        // UPDATE pakai supabaseAdmin (service role) — bypass RLS
-        const { data, error } = await supabaseAdmin
+        // UPDATE pakai req.supabase (native RLS)
+        const { data, error } = await req.supabase
             .from('challenge_questions')
             .update({
                 description: description ?? null,
@@ -300,16 +299,16 @@ router.delete('/questions/:questionId', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak.' });
         }
 
-        // DELETE pakai supabaseAdmin (service role) — bypass RLS
-        const { error } = await supabaseAdmin
+        // DELETE pakai req.supabase (native RLS)
+        const { error } = await req.supabase
             .from('challenge_questions')
             .delete()
             .eq('id', questionId);
 
         if (error) throw error;
 
-        // Re-nomor soal yang tersisa (juga pakai supabaseAdmin)
-        const { data: remaining } = await supabaseAdmin
+        // Re-nomor soal yang tersisa (pakai req.supabase)
+        const { data: remaining } = await req.supabase
             .from('challenge_questions')
             .select('id')
             .eq('challenge_id', q.challenge_id)
@@ -317,7 +316,7 @@ router.delete('/questions/:questionId', requireAuth, async (req, res) => {
 
         if (remaining && remaining.length > 0) {
             await Promise.all(remaining.map((r, idx) =>
-                supabaseAdmin
+                req.supabase
                     .from('challenge_questions')
                     .update({ nomor: idx + 1 })
                     .eq('id', r.id)
@@ -562,10 +561,9 @@ router.put('/answers/:answerId/grade', requireAuth, async (req, res) => {
             return res.status(403).json({ error: 'Akses ditolak. Anda bukan pembuat soal ini.' });
         }
 
-        // Gunakan supabaseAdmin (service role) untuk bypass RLS.
-        // req.supabase (user-scoped) akan diblokir RLS karena creator bukan pemilik row jawaban student.
+        // Gunakan req.supabase (dengan memanfaatkan RLS Policy agar bisa di-update oleh sang pembuat)
         const updatePayload = { grade: gradeNum, graded_at: new Date().toISOString() };
-        const { data, error } = await supabaseAdmin
+        const { data, error } = await req.supabase
             .from('challenge_answers')
             .update(updatePayload)
             .eq('id', answerId)
@@ -576,7 +574,7 @@ router.put('/answers/:answerId/grade', requireAuth, async (req, res) => {
             console.error('Grade DB Error:', error);
             // Jika kolom graded_at belum ada, coba tanpa field tersebut
             if (error.message?.includes('graded_at')) {
-                const { data: data2, error: error2 } = await supabaseAdmin
+                const { data: data2, error: error2 } = await req.supabase
                     .from('challenge_answers')
                     .update({ grade: gradeNum })
                     .eq('id', answerId)
