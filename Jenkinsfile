@@ -36,7 +36,6 @@ pipeline {
                     string(credentialsId: 'SUPABASE_SERVICE_ROLE_KEY', variable: 'SUPA_SERVICE_ROLE'),
                     string(credentialsId: 'ENCRYPTION_KEY',  variable: 'ENC_KEY'),
                     string(credentialsId: 'GROQ_API_KEY',    variable: 'GROQ_KEY'),
-                    string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'SUPA_ANON_KEY'),
                     string(credentialsId: 'GOOGLE_CLIENT_ID', variable: 'GOOGLE_CLIENT_ID'),
                     string(credentialsId: 'GOOGLE_CLIENT_SECRET', variable: 'GOOGLE_CLIENT_SECRET'),
                 ]) {
@@ -49,7 +48,6 @@ SUPABASE_KEY=${SUPA_KEY}
 SUPABASE_SERVICE_ROLE_KEY=${SUPA_SERVICE_ROLE}
 ENCRYPTION_KEY=${ENC_KEY}
 GROQ_API_KEY=${GROQ_KEY}
-SUPABASE_ANON_KEY=${SUPA_ANON_KEY}
 GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
 GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
 BACKEND_URL=${BACKEND_URL}
