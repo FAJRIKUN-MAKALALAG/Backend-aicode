@@ -74,12 +74,13 @@ router.post('/admin/toggle', requireAuth, requireAdmin, async (req, res) => {
         const newStatus = !currentStatus;
 
         // Update di DB (upsert agar row pasti ada)
+        // Tetap menggunakan service_role key sesuai instruksi ('supabase' bukan 'req.supabase')
         const { error } = await supabase
             .from('kuesioner_settings')
             .upsert({ id: 1, is_active: newStatus, updated_at: new Date().toISOString() }, { onConflict: 'id' });
 
         if (error) {
-            console.error('[POST /admin/toggle] Supabase error:', error.message);
+            console.error('[POST /admin/toggle] Supabase error:', error.message, error);
             return res.status(500).json({ error: 'Gagal mengubah status kuesioner.', details: error.message });
         }
 
