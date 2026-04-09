@@ -1,14 +1,18 @@
 const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../middleware/auth');
-const supabaseAdmin = require('../config/supabase'); // Tambahkan service role untuk public access
+const supabaseAdmin = require('../config/supabase');
 
-// GET /api/code/share/:id (Public endpoint untuk share link)
+// =========================================================
+// IMPORTANT: Specific routes MUST be declared before
+// wildcard routes like /:userId or /:id to avoid shadowing.
+// =========================================================
+
+// GET /api/code/share/:id (Public — no auth required)
 router.get('/share/:id', async (req, res) => {
     try {
         const { id } = req.params;
-        
-        // Menggunakan supabaseAdmin agar bisa diakses public (table shared_codes)
+
         const { data, error } = await supabaseAdmin
             .from('shared_codes')
             .select('id, title, code_content, language, created_at')
@@ -17,7 +21,7 @@ router.get('/share/:id', async (req, res) => {
 
         if (error) {
             if (error.code === 'PGRST116') {
-                 return res.status(404).json({ error: 'Shared code tidak ditemukan' });
+                return res.status(404).json({ error: 'Shared code tidak ditemukan' });
             }
             throw error;
         }
@@ -28,7 +32,7 @@ router.get('/share/:id', async (req, res) => {
     }
 });
 
-// POST /api/code/share (Simpan code ke table shared_codes untuk di-share)
+// POST /api/code/share (Save to shared_codes — requires auth)
 router.post('/share', requireAuth, async (req, res) => {
     try {
         const { title, code_content, language } = req.body;
@@ -57,30 +61,7 @@ router.post('/share', requireAuth, async (req, res) => {
     }
 });
 
-// GET /api/code/:userId
-router.get('/:userId', requireAuth, async (req, res) => {
-    try {
-        const { userId } = req.params;
-
-        if (req.user.id !== userId) {
-            return res.status(403).json({ error: 'Forbidden: access denied' });
-        }
-
-        const { data, error } = await req.supabase
-            .from('code_snippets')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
-
-        if (error) throw error;
-        res.json(data || []);
-    } catch (error) {
-        console.error('Get Code Snippets Error:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// GET /api/code/conversation/:conversationId
+// GET /api/code/conversation/:conversationId (must be before /:userId)
 router.get('/conversation/:conversationId', requireAuth, async (req, res) => {
     try {
         const { conversationId } = req.params;
@@ -99,11 +80,10 @@ router.get('/conversation/:conversationId', requireAuth, async (req, res) => {
     }
 });
 
-// POST /api/code
+// POST /api/code (create snippet)
 router.post('/', requireAuth, async (req, res) => {
     try {
         const { conversationId, title, code_content, language } = req.body;
-        // FIXED: Selalu pakai userId dari token, abaikan dari body
         const userId = req.user.id;
 
         if (!code_content || !language) {
@@ -130,7 +110,7 @@ router.post('/', requireAuth, async (req, res) => {
     }
 });
 
-// PUT /api/code/:id
+// PUT /api/code/:id (must be before /:userId)
 router.put('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
@@ -146,7 +126,6 @@ router.put('/:id', requireAuth, async (req, res) => {
             return res.status(400).json({ error: 'No fields to update' });
         }
 
-        // RLS memastikan hanya bisa update milik sendiri
         const { data, error } = await req.supabase
             .from('code_snippets')
             .update(updates)
@@ -166,7 +145,7 @@ router.put('/:id', requireAuth, async (req, res) => {
     }
 });
 
-// DELETE /api/code/:id
+// DELETE /api/code/:id (must be before /:userId)
 router.delete('/:id', requireAuth, async (req, res) => {
     try {
         const { id } = req.params;
@@ -182,6 +161,29 @@ router.delete('/:id', requireAuth, async (req, res) => {
         res.json({ success: true });
     } catch (error) {
         console.error('Delete Code Snippet Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /api/code/:userId — MUST be last among GETs (wildcard)
+router.get('/:userId', requireAuth, async (req, res) => {
+    try {
+        const { userId } = req.params;
+
+        if (req.user.id !== userId) {
+            return res.status(403).json({ error: 'Forbidden: access denied' });
+        }
+
+        const { data, error } = await req.supabase
+            .from('code_snippets')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        res.json(data || []);
+    } catch (error) {
+        console.error('Get Code Snippets Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
