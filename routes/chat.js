@@ -5,7 +5,6 @@ const { requireAuth } = require('../middleware/auth');
 const { decrypt } = require('../utils/crypto');
 const { systemPrompt } = require('../prompts');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const Groq = require('groq-sdk');
 const axios = require('axios');
 const rateLimit = require('express-rate-limit');
 
@@ -154,58 +153,6 @@ router.post('/', chatLimiter, requireAuth, async (req, res) => {
     }
 });
 
-// ========== GROQ FALLBACK CHAT API ==========
-router.post('/groq-fallback', chatLimiter, requireAuth, async (req, res) => {
-    const { messages } = req.body;
-    if (!messages || !Array.isArray(messages) || messages.length === 0) {
-        return res.status(400).json({ error: 'messages array is required' });
-    }
-
-    const groqKey = process.env.GROQ_API_KEY;
-    if (!groqKey) return res.status(500).json({ error: 'Groq API key not configured' });
-
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
-    if (typeof res.flushHeaders === 'function') res.flushHeaders();
-
-    try {
-        const groq = new Groq({ apiKey: groqKey });
-        const groqMessages = [
-            { role: 'system', content: systemPrompt },
-            ...messages.map(m => ({ role: m.role, content: m.content }))
-        ];
-
-        const stream = await groq.chat.completions.create({
-            messages: groqMessages,
-            model: 'moonshotai/kimi-k2-instruct',
-            temperature: 0.6,
-            max_completion_tokens: 4096,
-            top_p: 1,
-            stream: true,
-            stop: null
-        });
-
-        let fullText = "";
-        for await (const chunk of stream) {
-            const text = chunk.choices[0]?.delta?.content || '';
-            if (text) {
-                fullText += text;
-                res.write('data: ' + JSON.stringify({ text }) + '\n\n');
-            }
-        }
-        res.write('data: [DONE]\n\n');
-        
-        const estTokens = Math.ceil(fullText.length / 4);
-        console.log(`[TOKEN USAGE - GROQ] Response Chars: ${fullText.length} (~${estTokens} tokens)`);
-        res.end();
-
-    } catch (error) {
-        console.error('[GROQ FALLBACK ERROR]', error.message);
-        res.write('data: ' + JSON.stringify({ error: error.message }) + '\n\n');
-        res.end();
-    }
-});
+module.exports = router;
 
 module.exports = router;
