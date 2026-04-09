@@ -9,6 +9,14 @@ if (!supabaseUrl || !supabaseKey) {
     console.error('❌ [supabase.js] SUPABASE_URL atau SUPABASE_KEY tidak ditemukan di .env!');
 }
 
+// 🔍 Diagnostic: decode JWT payload untuk verifikasi role key yang dipakai
+try {
+    const payload = JSON.parse(Buffer.from(supabaseKey.split('.')[1], 'base64').toString());
+    console.log(`🔑 [supabase.js] Key role terdeteksi: "${payload.role}" ${payload.role === 'service_role' ? '✅ (bypass RLS)' : '⚠️ (TUNDUK pada RLS!)'}`);
+} catch {
+    console.warn('⚠️ [supabase.js] Tidak dapat decode JWT key — pastikan formatnya benar.');
+}
+
 /**
  * Gunakan SERVICE ROLE KEY + persistSession: false agar:
  * 1. Backend punya akses penuh (bypass RLS) untuk validasi token user
