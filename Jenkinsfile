@@ -38,6 +38,7 @@ pipeline {
                     string(credentialsId: 'GROQ_API_KEY',    variable: 'GROQ_KEY'),
                     string(credentialsId: 'GOOGLE_CLIENT_ID', variable: 'GOOGLE_CLIENT_ID'),
                     string(credentialsId: 'GOOGLE_CLIENT_SECRET', variable: 'GOOGLE_CLIENT_SECRET'),
+                    string(credentialsId: 'SUPABASE_ANON_KEY', variable: 'SUPA_ANON_KEY'),
                 ]) {
                     sh '''
                         cat <<EOF > .env
@@ -52,6 +53,7 @@ GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
 GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
 BACKEND_URL=${BACKEND_URL}
 FRONTEND_URL=${FRONTEND_URL}
+SUPABASE_ANON_KEY=${SUPA_ANON_KEY}
 EOF
                         echo "✅ File .env berhasil dibuat menggunakan metode atomic EOF."
                         echo "📊 Ukuran file: $(wc -c < .env) bytes"
