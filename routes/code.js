@@ -8,22 +8,51 @@ router.get('/share/:id', async (req, res) => {
     try {
         const { id } = req.params;
         
-        // Menggunakan supabaseAdmin agar bisa diakses public walau RLS aktif
+        // Menggunakan supabaseAdmin agar bisa diakses public (table shared_codes)
         const { data, error } = await supabaseAdmin
-            .from('code_snippets')
+            .from('shared_codes')
             .select('id, title, code_content, language, created_at')
             .eq('id', id)
             .single();
 
         if (error) {
             if (error.code === 'PGRST116') {
-                 return res.status(404).json({ error: 'Code snippet tidak ditemukan' });
+                 return res.status(404).json({ error: 'Shared code tidak ditemukan' });
             }
             throw error;
         }
         res.json(data);
     } catch (error) {
-        console.error('Get Shared Snippet Error:', error);
+        console.error('Get Shared Code Error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// POST /api/code/share (Simpan code ke table shared_codes untuk di-share)
+router.post('/share', requireAuth, async (req, res) => {
+    try {
+        const { title, code_content, language } = req.body;
+        const authorId = req.user.id;
+
+        if (!code_content || !language) {
+            return res.status(400).json({ error: 'Missing code_content or language' });
+        }
+
+        const { data, error } = await supabaseAdmin
+            .from('shared_codes')
+            .insert({
+                title: title || 'Shared Code',
+                code_content,
+                language,
+                author_id: authorId
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+        res.json(data);
+    } catch (error) {
+        console.error('Create Shared Code Error:', error);
         res.status(500).json({ error: error.message });
     }
 });
