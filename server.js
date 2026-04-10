@@ -28,9 +28,31 @@ const codeRoutes = require('./routes/code');
 const chatRoutes = require('./routes/chat');
 const challengeRoutes = require('./routes/challenges');
 const kuesionerRoutes = require('./routes/kuesioner');
+const dashboardRoutes = require('./routes/dashboard');
 
 const app = express();
 const port = process.env.PORT || 3000;
+
+// --- System Monitoring & Logging (Dashboard) ---
+global.recentApiLogs = [];
+app.use((req, res, next) => {
+    const start = Date.now();
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        const log = {
+            method: req.method,
+            path: req.originalUrl,
+            status: res.statusCode,
+            duration: `${duration}ms`,
+            time: new Date().getTime()
+        };
+        // Simpan 200 log terbaru agar tidak memenuhi memori server
+        global.recentApiLogs.unshift(log);
+        if (global.recentApiLogs.length > 200) global.recentApiLogs.pop();
+    });
+    next();
+});
+// ----------------------------------------------
 
 // Trust the first proxy (Nginx) to get correct client IP for rate limiting
 app.set('trust proxy', 1);
@@ -96,6 +118,7 @@ app.use('/api/code', codeRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/kuesioner', kuesionerRoutes);
+app.use('/api/dashboard', dashboardRoutes);
 
 // Start server
 app.listen(port, () => {
