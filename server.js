@@ -5,6 +5,32 @@ const cors = require('cors');
 const cookieParser = require('cookie-parser');
 const rateLimit = require('express-rate-limit');
 
+// --- DIAGNOSTIC LOGS ---
+process.on('uncaughtException', (err) => {
+    console.error('💥 FATAL ERROR (Uncaught Exception):', err);
+    // Beri waktu log untuk ter-flush sebelum exit
+    setTimeout(() => process.exit(1), 500);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Promise 💥 FATAL REJECTION at:', promise, 'reason:', reason);
+});
+
+process.on('exit', (code) => {
+    console.log(`🛑 Process is exiting with code: ${code}`);
+});
+
+process.on('SIGINT', () => {
+    console.log('🛑 Received SIGINT (Ctrl+C)');
+    process.exit(0);
+});
+
+process.on('SIGTERM', () => {
+    console.log('🛑 Received SIGTERM');
+    process.exit(0);
+});
+// -----------------------
+
 // Robustness Check: Pastikan env krusial termuat
 const hasSupabaseUrl = !!process.env.SUPABASE_URL;
 const hasSupabaseKey = !!(process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
