@@ -19,16 +19,6 @@ process.on('unhandledRejection', (reason, promise) => {
 process.on('exit', (code) => {
     console.log(`🛑 Process is exiting with code: ${code}`);
 });
-
-process.on('SIGINT', () => {
-    console.log('🛑 Received SIGINT (Ctrl+C)');
-    process.exit(0);
-});
-
-process.on('SIGTERM', () => {
-    console.log('🛑 Received SIGTERM');
-    process.exit(0);
-});
 // -----------------------
 
 // Robustness Check: Pastikan env krusial termuat
@@ -145,7 +135,20 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/challenges', challengeRoutes);
 app.use('/api/kuesioner', kuesionerRoutes);
 
-// Start server
-app.listen(port, () => {
-    console.log(`Server listening on port ${port}`);
+// Start server with robust error handling
+const server = app.listen(port, () => {
+    console.log(`🚀 Server listening on port ${port}`);
+    
+    // Keep-alive: Pastikan event loop tidak kosong agar tidak exit code 0
+    setInterval(() => {
+        // Dummy interval
+    }, 1000 * 60 * 60); 
+});
+
+server.on('error', (err) => {
+    console.error('❌ SERVER CRITICAL ERROR:', err);
+    if (err.code === 'EADDRINUSE') {
+        console.error(`Gagal: Port ${port} sudah digunakan oleh aplikasi lain!`);
+    }
+    process.exit(1);
 });
