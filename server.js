@@ -33,19 +33,34 @@ const dashboardRoutes = require('./routes/dashboard');
 const app = express();
 const port = process.env.PORT || 3000;
 
-// --- System Monitoring & Logging (Dashboard) ---
+// --- System Monitoring & Logging (Dashboard & PM2 Logs) ---
 global.recentApiLogs = [];
 app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => {
         const duration = Date.now() - start;
+        
+        // Coba dapatkan informasi user jika melewati middleware requireAuth
+        const userIdentifier = req.user ? (req.user.email || req.user.id || 'Unknown User') : 'Anonymous';
+        
         const log = {
             method: req.method,
             path: req.originalUrl,
             status: res.statusCode,
             duration: `${duration}ms`,
+            user: userIdentifier,
             time: new Date().getTime()
         };
+        
+        // LOG INTO PM2 (Bisa dilihat dari pm2 logs)
+        const logColor = res.statusCode >= 500 ? '\x1b[31m' : (res.statusCode >= 400 ? '\x1b[33m' : '\x1b[32m'); // Red for 5xx, Yellow for 4xx, Green for 2xx/3xx
+        const resetColor = '\x1b[0m';
+        console.log(`[API REQUEST] ${logColor}${req.method} ${req.originalUrl}${resetColor} - Status: ${res.statusCode} - Duration: ${duration}ms - User: ${userIdentifier}`);
+        
+        if (res.statusCode >= 400) {
+            console.error(`[API ERROR] ❌ Terjadi error ${res.statusCode} pada endpoint ${req.originalUrl} oleh User: ${userIdentifier}`);
+        }
+
         // Simpan 200 log terbaru agar tidak memenuhi memori server
         global.recentApiLogs.unshift(log);
         if (global.recentApiLogs.length > 200) global.recentApiLogs.pop();
