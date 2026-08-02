@@ -26,10 +26,9 @@ function cookieOpts(maxAge) {
     
     // Explicitly set domain di production agar cookie bersifat first-party
     // untuk subdomain (api.unklab-aicode.online dan unklab-aicode.online)
+    // Jika di Vercel atau domain lain, jangan set domain agar browser menyimpan cookie secara host-only.
     if (IS_PROD && process.env.BACKEND_URL && process.env.BACKEND_URL.includes('unklab-aicode.online')) {
         opts.domain = '.unklab-aicode.online';
-    } else if (IS_PROD) {
-        opts.domain = '.unklab-aicode.online'; // Default to this domain for this project
     }
     
     return opts;
@@ -45,8 +44,6 @@ function clearCookieOpts() {
     };
 
     if (IS_PROD && process.env.BACKEND_URL && process.env.BACKEND_URL.includes('unklab-aicode.online')) {
-        opts.domain = '.unklab-aicode.online';
-    } else if (IS_PROD) {
         opts.domain = '.unklab-aicode.online';
     }
     
