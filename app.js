@@ -39,6 +39,7 @@ app.set('trust proxy', 1);
 // Dynamic CORS configuration to allow local, current production, and Vercel domains
 const allowedOrigins = [
     'https://aicode-rho.vercel.app',
+    'https://www.unklab-aicode.online',
     'https://api.unklab-aicode.online',
     'http://localhost:5173',
     'http://localhost:8080',
