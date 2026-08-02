@@ -48,7 +48,15 @@ const allowedOrigins = [
 const corsOptions = {
     origin: (origin, callback) => {
         if (!origin) return callback(null, true);
-        const isAllowed = allowedOrigins.includes(origin) || origin.endsWith('.vercel.app');
+        let isAllowed = allowedOrigins.includes(origin);
+        if (!isAllowed) {
+            try {
+                const hostname = new URL(origin).hostname;
+                isAllowed = hostname === 'vercel.app' || hostname.endsWith('.vercel.app');
+            } catch (err) {
+                isAllowed = false;
+            }
+        }
         if (isAllowed) {
             callback(null, true);
         } else {
