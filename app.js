@@ -18,7 +18,7 @@ process.on('unhandledRejection', (reason, promise) => {
 const hasSupabaseUrl = !!process.env.SUPABASE_URL;
 const hasSupabaseKey = !!(process.env.SUPABASE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY);
 if (!hasSupabaseUrl || !hasSupabaseKey) {
-    console.warn("⚠️ SUPABASE_URL or SUPABASE_KEY missing in environment.");
+    console.warn("⚠️ SUPABASE_URL or SUPABASE_KEY missing in environment,,,.");
 }
 
 // Routes & Middleware imports
